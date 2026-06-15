@@ -102,3 +102,39 @@ def test_cors_origins_from_env(monkeypatch):
 
     settings = Settings()
     assert settings.cors_origins_list == ["http://a.example", "http://b.example:5173"]
+
+
+class _FakeProxmox:
+    def __init__(self, nodes, default):
+        self._nodes = nodes
+        self.default_node = default
+
+    async def get_nodes(self):
+        return [{"node": n} for n in self._nodes]
+
+
+def test_resolve_node_match():
+    import asyncio
+    from app.tasks import _resolve_deployment_node
+
+    px = _FakeProxmox(["pve", "node2"], "pve")
+    assert asyncio.run(_resolve_deployment_node(px, None)) == "pve"
+
+
+def test_resolve_node_single_node_fallback():
+    # Configured default is wrong but there is exactly one node -> use it.
+    import asyncio
+    from app.tasks import _resolve_deployment_node
+
+    px = _FakeProxmox(["Proxmox-WI"], "pve")
+    assert asyncio.run(_resolve_deployment_node(px, None)) == "Proxmox-WI"
+
+
+def test_resolve_node_unknown_raises():
+    import asyncio
+    from app.proxmox_client import ProxmoxAPIError
+    from app.tasks import _resolve_deployment_node
+
+    px = _FakeProxmox(["a", "b"], "pve")
+    with pytest.raises(ProxmoxAPIError):
+        asyncio.run(_resolve_deployment_node(px, None))
