@@ -241,6 +241,31 @@ async def _check_updates(vmid: int) -> Tuple[List[UpdateInfo], str]:
     return parse_upgradable(result.stdout), result.stdout
 
 
+async def _resolve_deployment_node(proxmox, requested: Optional[str]) -> str:
+    """Resolve the target node and fail with a clear message if it is unknown.
+
+    Turns Proxmox's cryptic "hostname lookup 'pve' failed" into an understandable
+    error and auto-selects the only node in single-node (homelab) setups.
+    """
+    nodes = [n.get("node") for n in await proxmox.get_nodes() if n.get("node")]
+    if not nodes:
+        raise ProxmoxAPIError("Keine Proxmox-Nodes gefunden.")
+    target = requested or proxmox.default_node
+    if target in nodes:
+        return target
+    # Single-node homelab: the configured default did not match -> use the only
+    # node instead of failing. An explicitly requested node is never overridden.
+    if not requested and len(nodes) == 1:
+        logger.warning(
+            "Konfigurierter Node '%s' nicht gefunden – nutze '%s'.", target, nodes[0]
+        )
+        return nodes[0]
+    raise ProxmoxAPIError(
+        f"Node '{target}' nicht gefunden. Verfügbare Nodes: {', '.join(nodes)}. "
+        "Bitte PROXMOX_NODE anpassen oder einen Node auswählen."
+    )
+
+
 # --- Workflows --------------------------------------------------------------
 async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
     """Full LXC provisioning workflow. Updates the job as it progresses."""
@@ -249,10 +274,12 @@ async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
         return
     proxmox = get_proxmox()
     ssh = get_ssh()
-    node = request.node or proxmox.default_node
-    job.node = node
 
     try:
+        # Resolve and validate the target node up front for a clear error message.
+        node = await _resolve_deployment_node(proxmox, request.node)
+        job.node = node
+
         # 1. Create container
         manager.set_status(job, JobStatus.creating, progress=10)
         manager.log(job, "info", f"Erstelle LXC-Container auf Node '{node}'.")
