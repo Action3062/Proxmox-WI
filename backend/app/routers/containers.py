@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import List
 
@@ -11,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..auth import get_current_user
 from ..models import ContainerCreateRequest, JobResponse, JobStatus, SoftwarePackage
 from ..software import get_catalog, valid_ids
-from ..tasks import manager, run_deployment, run_install_updates
+from ..tasks import manager, run_deployment, run_install_updates, spawn
 
 router = APIRouter(tags=["containers"], dependencies=[Depends(get_current_user)])
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ async def create_container(request: ContainerCreateRequest) -> JobResponse:
     job = manager.create("lxc", request)
     logger.info("Bereitstellung gestartet (Job %s, Host '%s').", job.id, request.hostname)
     # Run the long-lived workflow in the background; the client polls the job.
-    asyncio.create_task(run_deployment(job.id, request))
+    spawn(run_deployment(job.id, request))
     return job.to_response()
 
 
@@ -81,5 +80,5 @@ async def install_updates(job_id: str) -> JobResponse:
             detail="Der Job ist noch aktiv. Bitte warten.",
         )
     logger.info("Update-Installation gestartet (Job %s).", job.id)
-    asyncio.create_task(run_install_updates(job.id))
+    spawn(run_install_updates(job.id))
     return job.to_response()

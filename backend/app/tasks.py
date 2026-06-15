@@ -127,6 +127,19 @@ class JobManager:
 
 manager = JobManager()
 
+# Strong references to running background tasks. asyncio only keeps weak
+# references, so without this a fire-and-forget task could be garbage collected
+# mid-flight. Tasks remove themselves on completion.
+_background_tasks: set = set()
+
+
+def spawn(coro) -> "asyncio.Task":
+    """Schedule a coroutine as a tracked background task."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
 
 # --- Script builders --------------------------------------------------------
 def build_lxc_params(request: ContainerCreateRequest, vmid: int) -> dict:
