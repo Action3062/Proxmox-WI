@@ -37,8 +37,11 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
-      - backend
-      - frontend
+      # Start the proxy only once the backend is healthy to avoid first-start 504s.
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     ports:
       # Override the public port via HTTP_PORT in .env if needed.
       - "${HTTP_PORT:-80}:80"
