@@ -1,0 +1,57 @@
+# Docker Compose deployment for the Proxmox Web Interface.
+#
+# Services:
+#   backend  - FastAPI application (internal only)
+#   frontend - built React SPA served by nginx (internal only)
+#   nginx    - reverse proxy and single public entry point
+#
+# The .env file (never committed) provides all secrets/config to the backend.
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Logs are written into the mounted volume.
+      LOG_DIR: /app/logs
+    volumes:
+      - backend_logs:/app/logs
+    expose:
+      - "8000"
+    networks:
+      - appnet
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "80"
+    networks:
+      - appnet
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      # Override the public port via HTTP_PORT in .env if needed.
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - appnet
+
+volumes:
+  backend_logs:
+  nginx_logs:
+
+networks:
+  appnet:
+    driver: bridge

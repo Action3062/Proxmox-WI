@@ -1,0 +1,20 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Settings & validation
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Auth: JWT + password hashing
+PyJWT==2.10.1
+bcrypt==4.2.1
+
+# HTTP client for the Proxmox VE API
+httpx==0.28.1
+
+# SSH client for running commands inside containers via `pct exec`
+asyncssh==2.19.0
+
+# Required by FastAPI for form-encoded login payloads
+python-multipart==0.0.20
