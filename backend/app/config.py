@@ -11,7 +11,6 @@ from functools import lru_cache
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,8 +45,11 @@ class Settings(BaseSettings):
     admin_password_hash: Optional[str] = None
 
     # --- CORS ----------------------------------------------------------------
-    # Comma separated list of allowed origins. Kept tight by default.
-    cors_origins: List[str] = ["http://localhost", "http://localhost:5173"]
+    # Comma separated list of allowed origins. Stored as a plain string on
+    # purpose: pydantic-settings tries to JSON-decode env values of complex types
+    # (e.g. List[str]), which would crash on a comma separated value. The parsed
+    # list is exposed via `cors_origins_list`.
+    cors_origins: str = "http://localhost,http://localhost:5173"
 
     # --- Proxmox VE API ------------------------------------------------------
     proxmox_host: str = ""  # e.g. https://192.168.1.10:8006
@@ -70,13 +72,10 @@ class Settings(BaseSettings):
     proxmox_ssh_key: Optional[str] = None  # private key contents (PEM)
     proxmox_ssh_key_file: Optional[str] = None  # path to a private key file
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _split_cors(cls, value):
-        """Allow CORS_ORIGINS to be provided as a comma separated string."""
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Allowed CORS origins as a list (parsed from the comma separated value)."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def effective_ssh_host(self) -> str:
