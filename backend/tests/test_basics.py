@@ -92,3 +92,13 @@ def test_parse_upgradable():
 def test_redaction():
     assert "s3cret" not in redact("password: s3cret")
     assert "REDACTED" in redact("PVEAPIToken=root@pam!web=abcd-1234")
+
+
+def test_cors_origins_from_env(monkeypatch):
+    # Regression: a comma separated CORS_ORIGINS env value must not crash
+    # settings construction (pydantic-settings must not JSON-decode it).
+    monkeypatch.setenv("CORS_ORIGINS", "http://a.example,http://b.example:5173")
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.cors_origins_list == ["http://a.example", "http://b.example:5173"]
