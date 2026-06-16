@@ -97,6 +97,9 @@ export const api = {
     request(`/guests/${kind}/${vmid}/backup${qs({ node })}`, { method: "POST" }),
   guestDelete: (kind, vmid, node) =>
     request(`/guests/${kind}/${vmid}${qs({ node })}`, { method: "DELETE" }),
+  communityScripts: () => request("/community-scripts"),
+  runCommunityScript: (slug) =>
+    request("/community-scripts/run", { method: "POST", body: { slug } }),
   jobs: () => request("/jobs"),
   job: (id) => request(`/jobs/${id}`),
   installUpdates: (id) => request(`/jobs/${id}/install-updates`, { method: "POST" }),

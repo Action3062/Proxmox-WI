@@ -86,6 +86,8 @@ Proxmox anzulegen und einzurichten, vereinfachen und automatisieren:
 - 🗂️ Gäste-Übersicht: vorhandene LXC/VMs anzeigen (Status, IP, CPU/RAM) und
   starten / herunterfahren / neu starten / löschen / **Backup** (vzdump)
 - 💾 Optionales Backup direkt nach der Erstellung (Storage wählbar)
+- 🧩 Konsolen-Autologin (optional) sowie ein experimenteller
+  **Community-Scripts**-Modus (community-scripts.org per SSH auf dem Host)
 - 🔄 Updates bei der Erstellung installieren (optional, Standard an) +
   „Updates installieren“-Button; **automatische Sicherheitsupdates**
   (unattended-upgrades) optional aktivierbar

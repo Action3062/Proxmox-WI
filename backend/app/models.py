@@ -41,6 +41,19 @@ class User(BaseModel):
     role: str = "admin"
 
 
+class CommunityScriptRequest(BaseModel):
+    """Request to run a community-scripts.org helper script (by its slug)."""
+
+    slug: str = Field(min_length=1, max_length=64)
+
+    @field_validator("slug")
+    @classmethod
+    def _validate_slug(cls, value: str) -> str:
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,63}$", value):
+            raise ValueError("Ungültiger Script-Name (nur a-z, 0-9 und '-').")
+        return value
+
+
 # --- Software catalog -------------------------------------------------------
 class SoftwarePackage(BaseModel):
     id: str

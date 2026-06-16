@@ -278,6 +278,15 @@ def test_unattended_upgrades_script():
     assert "apt-daily.timer" in s
 
 
+def test_community_script_slug_validation():
+    from app.models import CommunityScriptRequest
+
+    assert CommunityScriptRequest(slug="jellyfin").slug == "jellyfin"
+    for bad in ["bad slug", "../etc", "rm -rf /", "a;b", "UPPER"]:
+        with pytest.raises(ValidationError):
+            CommunityScriptRequest(slug=bad)
+
+
 def test_autologin_script():
     from app.tasks import build_autologin_script
 

@@ -25,6 +25,7 @@ from .models import (
     LogEntry,
     UpdateInfo,
 )
+from .community import script_url
 from .config import get_settings
 from .proxmox_client import ProxmoxAPIError, get_proxmox
 from .software import APT_PRELUDE, build_install_script, build_unattended_upgrades_script
@@ -684,6 +685,53 @@ async def run_install_updates(job_id: str) -> None:
         _fail(job, str(exc))
     except Exception as exc:  # pragma: no cover
         logger.exception("Unerwarteter Fehler bei der Update-Installation")
+        _fail(job, f"Unerwarteter Fehler: {exc}")
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text).replace("\r", "")
+
+
+async def run_community_script(job_id: str, slug: str) -> None:
+    """Run a community-scripts.org helper script on the Proxmox host via SSH.
+
+    The script creates its own LXC. Output is streamed into the job log. This is
+    best effort: many scripts are interactive and run remote code as root.
+    """
+    job = manager.get(job_id)
+    if job is None:
+        return
+    ssh = get_ssh()
+    try:
+        url = script_url(slug)
+        command = f'bash -c "$(wget -qLO - {url})"'
+        manager.set_status(job, JobStatus.installing, progress=10)
+        manager.log(job, "info", f"Starte Community-Script '{slug}' auf dem Proxmox-Host …")
+        manager.log(job, "info", f"Befehl: {command}")
+        manager.log(
+            job, "warning",
+            "Experimentell: interaktive Abfragen werden best-effort mit "
+            "Standardeinstellungen beantwortet. Bei Problemen den Befehl manuell "
+            "in der Proxmox-Shell ausführen.",
+        )
+
+        def _on_output(text: str) -> None:
+            for line in _strip_ansi(text).splitlines():
+                if line.strip():
+                    manager.log(job, "info", line)
+
+        exit_status = await ssh.run_pty_stream(command, _on_output, timeout=3600)
+        if exit_status != 0:
+            raise SSHError(f"Community-Script endete mit Exit-Code {exit_status}.")
+        manager.set_status(job, JobStatus.done, progress=100)
+        manager.log(job, "info", "Community-Script abgeschlossen.")
+    except (ProxmoxAPIError, SSHError, ValueError) as exc:
+        _fail(job, str(exc))
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Unerwarteter Fehler beim Community-Script")
         _fail(job, f"Unerwarteter Fehler: {exc}")
 
 

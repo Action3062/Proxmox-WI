@@ -8,11 +8,12 @@ command line — this avoids any quoting/injection issues entirely.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional
+from typing import Callable, Optional
 
 import asyncssh
 
@@ -97,6 +98,60 @@ class ProxmoxSSH:
             f"echo {encoded} | base64 -d | pct exec {int(vmid)} -- bash -s"
         )
         return await self.run(command, timeout=timeout)
+
+    async def run_pty_stream(
+        self,
+        command: str,
+        on_output: Callable[[str], None],
+        autoaccept: bool = True,
+        timeout: int = 3600,
+    ) -> int:
+        """Run a command on the host in a PTY, streaming output line by line.
+
+        Used for the (interactive) community-scripts. ``on_output`` is called with
+        each output line. When ``autoaccept`` is set, a few Enter keystrokes are
+        sent early as a best-effort way to accept the "Use Default Settings"
+        prompt. Returns the command's exit status.
+        """
+
+        async def _run() -> int:
+            async with asyncssh.connect(**self._connect_kwargs()) as conn:
+                proc = await conn.create_process(
+                    command,
+                    term_type="xterm",
+                    term_size=(120, 40),
+                    stderr=asyncssh.STDOUT,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
+                async def _feed() -> None:
+                    # Best-effort: accept the default-settings whiptail prompt.
+                    try:
+                        for _ in range(3):
+                            await asyncio.sleep(4)
+                            proc.stdin.write("\r")
+                    except Exception:  # pragma: no cover - stdin may be closed
+                        pass
+
+                feeder = asyncio.create_task(_feed()) if autoaccept else None
+                try:
+                    async for line in proc.stdout:
+                        on_output(line)
+                finally:
+                    if feeder:
+                        feeder.cancel()
+                await proc.wait_closed()
+                return proc.exit_status or 0
+
+        try:
+            return await asyncio.wait_for(_run(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise SSHError("Zeitüberschreitung beim Ausführen des Scripts.") from exc
+        except asyncssh.Error as exc:
+            raise SSHError(f"SSH-Fehler: {exc}") from exc
+        except OSError as exc:
+            raise SSHError(f"SSH-Verbindung fehlgeschlagen: {exc}") from exc
 
     async def wait_container_ready(
         self, vmid: int, attempts: int = 30, delay: float = 2.0
