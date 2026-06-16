@@ -393,6 +393,10 @@ def build_vm_config(request: ContainerCreateRequest) -> dict:
         "cores": request.cores,
         "memory": request.memory_mb,
         "agent": 1,  # enable the QEMU guest agent (needed for software/updates)
+        # Force a standard display so the Proxmox web console works. Cloud-init
+        # templates are often set to "serial0", which leaves the noVNC console
+        # blank. Cloud images also output to tty0, so this shows the login prompt.
+        "vga": "std",
         "net0": net,
         "ciuser": request.username,
         "ipconfig0": ipconfig,

@@ -226,6 +226,7 @@ def test_build_vm_config_cloudinit():
     assert cfg["ciuser"] == "deploy"
     assert cfg["ipconfig0"] == "ip=192.168.1.50/24,gw=192.168.1.1"
     assert cfg["agent"] == 1
+    assert cfg["vga"] == "std"  # ensure a usable graphical console
     assert cfg["net0"].startswith("virtio,bridge=")
     assert "%20" in cfg["sshkeys"]  # URL-encoded
 

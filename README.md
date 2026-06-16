@@ -130,7 +130,7 @@ qm importdisk 9000 debian-12-genericcloud-amd64.qcow2 local-zfs
 qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-zfs:vm-9000-disk-0
 qm set 9000 --ide2 local-zfs:cloudinit
 qm set 9000 --boot order=scsi0
-qm set 9000 --serial0 socket --vga serial0
+qm set 9000 --serial0 socket --vga std   # std = nutzbare Web-Konsole (nicht serial0)
 qm set 9000 --agent enabled=1
 
 # 4. In ein Template umwandeln
