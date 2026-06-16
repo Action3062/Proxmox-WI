@@ -41,6 +41,18 @@ def _parse_template(volid: str, size: Optional[int] = None) -> dict:
     }
 
 
+@router.get("/defaults")
+def defaults() -> dict:
+    """Configured default values used to pre-fill the creation form."""
+    s = get_settings()
+    return {
+        "node": s.proxmox_node,
+        "storage": s.proxmox_default_storage,
+        "template_storage": s.proxmox_template_storage,
+        "bridge": s.proxmox_default_bridge,
+    }
+
+
 @router.get("/nodes")
 async def list_nodes() -> List[dict]:
     proxmox = get_proxmox()

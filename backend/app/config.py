@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     proxmox_verify_ssl: bool = False  # homelab Proxmox often uses self-signed certs
 
     # --- Proxmox defaults presented in the UI -------------------------------
-    proxmox_default_storage: str = "local-lvm"
+    proxmox_default_storage: str = "local-zfs"
     proxmox_template_storage: str = "local"
     proxmox_default_bridge: str = "vmbr0"
 

@@ -83,6 +83,7 @@ export const api = {
   me: () => request("/auth/me"),
   software: () => request("/software"),
   nodes: () => request("/proxmox/nodes"),
+  defaults: () => request("/proxmox/defaults"),
   storages: (params) => request(`/proxmox/storages${qs(params)}`),
   bridges: (params) => request(`/proxmox/bridges${qs(params)}`),
   templates: (params) => request(`/proxmox/templates${qs(params)}`),

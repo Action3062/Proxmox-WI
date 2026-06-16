@@ -12,7 +12,7 @@ const INITIAL = {
   cores: 2,
   memory_mb: 1024,
   disk_gb: 8,
-  storage: "local-lvm",
+  storage: "local-zfs",
   bridge: "vmbr0",
   ip_config: "dhcp",
   ip_address: "",
@@ -58,16 +58,25 @@ export default function CreateContainerForm({ onCreated }) {
   useEffect(() => {
     (async () => {
       try {
-        const [nodeList, storageList, bridgeList, templateList] = await Promise.all([
+        const [nodeList, storageList, bridgeList, templateList, defaults] = await Promise.all([
           api.nodes().catch(() => []),
           api.storages().catch(() => []),
           api.bridges().catch(() => []),
           api.templates().catch(() => []),
+          api.defaults().catch(() => null),
         ]);
         setNodes(nodeList);
         setStorages(storageList);
         setBridges(bridgeList);
         setTemplates(templateList);
+        // Pre-fill storage/bridge from the server-side configured defaults.
+        if (defaults) {
+          setForm((f) => ({
+            ...f,
+            storage: defaults.storage || f.storage,
+            bridge: defaults.bridge || f.bridge,
+          }));
+        }
         if (!templateList.length && !storageList.length) {
           setMetaError(
             "Proxmox-Metadaten konnten nicht geladen werden. Werte können manuell eingegeben werden."
