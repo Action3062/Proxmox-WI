@@ -79,20 +79,6 @@ async def list_guests() -> List[dict]:
     return guests
 
 
-@router.post("/{kind}/{vmid}/{action}", status_code=status.HTTP_202_ACCEPTED)
-async def guest_action(
-    kind: str, vmid: int, action: str, node: Optional[str] = None
-) -> dict:
-    """Run a power action on a guest. The action is issued asynchronously."""
-    if action not in _ACTIONS:
-        raise HTTPException(status_code=400, detail="Ungültige Aktion.")
-    proxmox = get_proxmox()
-    resolved = _resolve_node(node)
-    logger.info("Gast-Aktion '%s' auf %s/%s (Node %s).", action, kind, vmid, resolved)
-    upid = await proxmox.guest_action(resolved, _proxmox_kind(kind), vmid, action)
-    return {"upid": upid}
-
-
 @router.post("/{kind}/{vmid}/backup", status_code=status.HTTP_202_ACCEPTED)
 async def backup_guest(
     kind: str, vmid: int, node: Optional[str] = None,
@@ -107,6 +93,22 @@ async def backup_guest(
     target = storage or get_settings().proxmox_backup_storage
     logger.info("Backup von %s/%s auf '%s' (Node %s).", kind, vmid, target, resolved)
     upid = await proxmox.backup_guest(resolved, vmid, target, mode=mode)
+    return {"upid": upid}
+
+
+# NOTE: the generic {action} route must be declared AFTER the static "backup"
+# route above, otherwise FastAPI would match /.../backup as action="backup".
+@router.post("/{kind}/{vmid}/{action}", status_code=status.HTTP_202_ACCEPTED)
+async def guest_action(
+    kind: str, vmid: int, action: str, node: Optional[str] = None
+) -> dict:
+    """Run a power action on a guest. The action is issued asynchronously."""
+    if action not in _ACTIONS:
+        raise HTTPException(status_code=400, detail="Ungültige Aktion.")
+    proxmox = get_proxmox()
+    resolved = _resolve_node(node)
+    logger.info("Gast-Aktion '%s' auf %s/%s (Node %s).", action, kind, vmid, resolved)
+    upid = await proxmox.guest_action(resolved, _proxmox_kind(kind), vmid, action)
     return {"upid": upid}
 
 
