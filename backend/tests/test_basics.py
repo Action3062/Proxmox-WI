@@ -43,6 +43,19 @@ def test_invalid_hostname():
         ContainerCreateRequest(**_valid_payload(hostname="invalid host!"))
 
 
+def test_invalid_template_rejects_path():
+    # A filesystem path (not a storage volid) must be rejected before reaching Proxmox.
+    with pytest.raises(ValidationError):
+        ContainerCreateRequest(
+            **_valid_payload(template="/var/lib/vz/template/cache/debian-12.tar.zst")
+        )
+
+
+def test_invalid_template_requires_storage_prefix():
+    with pytest.raises(ValidationError):
+        ContainerCreateRequest(**_valid_payload(template="debian-12.tar.zst"))
+
+
 def test_static_ip_requires_address():
     with pytest.raises(ValidationError):
         ContainerCreateRequest(**_valid_payload(ip_config="static"))
