@@ -208,7 +208,9 @@ def build_install_script(selected_ids: List[str], language: str = "de") -> str:
     shell command line on the Proxmox host. It also configures locale/keyboard.
     """
     entries = _resolve(selected_ids)
-    apt_packages: List[str] = ["locales"]  # required for locale-gen
+    # "locales" for locale-gen, "kbd" so the console keymap can actually be
+    # loaded (cloud images often lack it -> German keyboard would not apply).
+    apt_packages: List[str] = ["locales", "kbd"]
     for entry in entries:
         apt_packages.extend(entry.apt)
 
