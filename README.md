@@ -83,8 +83,9 @@ Proxmox anzulegen und einzurichten, vereinfachen und automatisieren:
 - 📦 Software-Auswahl mit vorausgewählten Standardpaketen + Extras (Docker,
   Nginx, MariaDB, PostgreSQL, Node.js, Portainer, …)
 - 🚀 Automatisches Anlegen, Starten und Einrichten über Proxmox
-- 🗂️ Gäste-Übersicht: vorhandene LXC/VMs anzeigen und starten / herunterfahren /
-  neu starten / löschen
+- 🗂️ Gäste-Übersicht: vorhandene LXC/VMs anzeigen (Status, IP, CPU/RAM) und
+  starten / herunterfahren / neu starten / löschen / **Backup** (vzdump)
+- 💾 Optionales Backup direkt nach der Erstellung (Storage wählbar)
 - 🔄 Updates bei der Erstellung installieren (optional, Standard an) +
   „Updates installieren“-Button; **automatische Sicherheitsupdates**
   (unattended-upgrades) optional aktivierbar

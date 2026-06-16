@@ -25,6 +25,7 @@ from .models import (
     LogEntry,
     UpdateInfo,
 )
+from .config import get_settings
 from .proxmox_client import ProxmoxAPIError, get_proxmox
 from .software import APT_PRELUDE, build_install_script, build_unattended_upgrades_script
 from .ssh_client import SSHError, get_ssh
@@ -320,6 +321,22 @@ async def _finalize_updates(job: "Job", request: ContainerCreateRequest) -> None
             )
 
 
+async def _create_backup_if_requested(job: "Job", request: ContainerCreateRequest) -> None:
+    """Optionally create a vzdump backup after provisioning. Non-fatal on failure
+    (the guest itself was created successfully)."""
+    if not request.backup_after_create or job.vmid is None:
+        return
+    proxmox = get_proxmox()
+    storage = request.backup_storage or get_settings().proxmox_backup_storage
+    try:
+        manager.log(job, "info", f"Erstelle Backup auf '{storage}' …")
+        upid = await proxmox.backup_guest(job.node, job.vmid, storage)
+        await _await_task(proxmox, job.node, upid, job, timeout=3600)
+        manager.log(job, "info", "Backup erstellt.")
+    except (ProxmoxAPIError, SSHError) as exc:
+        manager.log(job, "warning", f"Backup fehlgeschlagen: {exc}")
+
+
 async def _resolve_deployment_node(proxmox, requested: Optional[str]) -> str:
     """Resolve the target node and fail with a clear message if it is unknown.
 
@@ -430,6 +447,9 @@ async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> No
 
         # 5. Install/check updates + enable automatic security updates
         await _finalize_updates(job, request)
+
+        # 6. Optional backup
+        await _create_backup_if_requested(job, request)
 
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")
@@ -577,6 +597,9 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
 
         # 5. Install/check updates + enable automatic security updates
         await _finalize_updates(job, request)
+
+        # 6. Optional backup
+        await _create_backup_if_requested(job, request)
 
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")

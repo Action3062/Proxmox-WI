@@ -235,6 +235,23 @@ class ProxmoxClient:
         )
         return str(upid)
 
+    async def backup_guest(
+        self, node: str, vmid: int, storage: str,
+        mode: str = "snapshot", compress: str = "zstd",
+    ) -> str:
+        """Create a vzdump backup of a guest. Returns the task UPID."""
+        upid = await self._request(
+            "POST", f"/nodes/{node}/vzdump",
+            data=_normalise({
+                "vmid": vmid,
+                "storage": storage,
+                "mode": mode,
+                "compress": compress,
+                "remove": 0,  # never prune other backups
+            }),
+        )
+        return str(upid)
+
     async def get_lxc_ip(self, node: str, vmid: int) -> Optional[str]:
         """Best-effort primary IPv4 of a running container (None on failure)."""
         try:

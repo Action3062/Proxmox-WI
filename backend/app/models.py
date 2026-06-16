@@ -98,6 +98,8 @@ class ContainerCreateRequest(BaseModel):
     language: Literal["de", "en"] = "de"  # locale + console keyboard layout
     install_updates: bool = True  # install pending updates during provisioning
     auto_security_updates: bool = True  # enable unattended-upgrades for security
+    backup_after_create: bool = False  # create a vzdump backup once provisioned
+    backup_storage: Optional[str] = Field(default=None, max_length=64)
     software: List[str] = Field(default_factory=list)
 
     @field_validator("hostname")
@@ -159,6 +161,9 @@ class ContainerCreateRequest(BaseModel):
         # Require a way to log in to the new container.
         if not self.password and not self.ssh_key:
             raise ValueError("Entweder Passwort oder SSH-Key muss angegeben werden.")
+
+        if self.backup_storage and not re.match(r"^[a-zA-Z0-9._-]+$", self.backup_storage):
+            raise ValueError("Ungültiger Backup-Storage.")
         return self
 
     @property

@@ -24,6 +24,8 @@ const INITIAL = {
   language: "de",
   install_updates: true,
   auto_security_updates: true,
+  backup_after_create: false,
+  backup_storage: "",
   software: [],
 };
 
@@ -82,6 +84,7 @@ export default function CreateContainerForm({ onCreated }) {
             ...f,
             storage: defaults.storage || f.storage,
             bridge: defaults.bridge || f.bridge,
+            backup_storage: defaults.backup_storage || f.backup_storage,
           }));
         }
         if (!templateList.length && !storageList.length) {
@@ -142,6 +145,9 @@ export default function CreateContainerForm({ onCreated }) {
         gateway: form.ip_config === "static" ? form.gateway || undefined : undefined,
         password: form.password || undefined,
         ssh_key: form.ssh_key || undefined,
+        backup_storage: form.backup_after_create
+          ? form.backup_storage || undefined
+          : undefined,
       };
       const job = await api.createContainer(payload);
       onCreated?.(job);
@@ -413,6 +419,34 @@ export default function CreateContainerForm({ onCreated }) {
           />
           Automatische Sicherheitsupdates aktivieren
         </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.backup_after_create}
+            onChange={(e) => set("backup_after_create", e.target.checked)}
+          />
+          Nach Erstellung ein Backup erstellen
+        </label>
+        {form.backup_after_create && (
+          <div className="grid">
+            <label>
+              Backup-Storage
+              <input
+                type="text"
+                list="backup-storage-list"
+                value={form.backup_storage}
+                onChange={(e) => set("backup_storage", e.target.value)}
+              />
+              <datalist id="backup-storage-list">
+                {storages
+                  .filter((s) => (s.content || "").includes("backup"))
+                  .map((s) => (
+                    <option key={s.storage} value={s.storage} />
+                  ))}
+              </datalist>
+            </label>
+          </div>
+        )}
       </fieldset>
 
       <fieldset>

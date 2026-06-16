@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     proxmox_default_storage: str = "local-zfs"
     proxmox_template_storage: str = "local"
     proxmox_default_bridge: str = "vmbr0"
+    proxmox_backup_storage: str = "local"  # storage that holds vzdump backups
 
     # --- Proxmox SSH (used for `pct exec`: software install + update checks) --
     # If the SSH host is not given it is derived from ``proxmox_host``.

@@ -93,6 +93,8 @@ export const api = {
   guests: () => request("/guests"),
   guestAction: (kind, vmid, action, node) =>
     request(`/guests/${kind}/${vmid}/${action}${qs({ node })}`, { method: "POST" }),
+  guestBackup: (kind, vmid, node) =>
+    request(`/guests/${kind}/${vmid}/backup${qs({ node })}`, { method: "POST" }),
   guestDelete: (kind, vmid, node) =>
     request(`/guests/${kind}/${vmid}${qs({ node })}`, { method: "DELETE" }),
   jobs: () => request("/jobs"),

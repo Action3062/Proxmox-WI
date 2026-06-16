@@ -286,6 +286,25 @@ def test_ssh_pwauth_script():
     assert "00-pwauth.conf" in s
 
 
+def test_backup_guest_posts_vzdump():
+    import asyncio
+
+    client = _client()
+    captured = {}
+
+    async def fake_request(method, path, **kwargs):
+        captured["path"] = path
+        captured["data"] = kwargs.get("data")
+        return "UPID:backup"
+
+    client._request = fake_request
+    upid = asyncio.run(client.backup_guest("node", 100, "local"))
+    assert upid == "UPID:backup"
+    assert captured["path"].endswith("/vzdump")
+    assert captured["data"]["vmid"] == 100
+    assert captured["data"]["storage"] == "local"
+
+
 def test_get_lxc_ip_parses_interfaces():
     import asyncio
 

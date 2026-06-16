@@ -93,6 +93,23 @@ async def guest_action(
     return {"upid": upid}
 
 
+@router.post("/{kind}/{vmid}/backup", status_code=status.HTTP_202_ACCEPTED)
+async def backup_guest(
+    kind: str, vmid: int, node: Optional[str] = None,
+    storage: Optional[str] = None, mode: str = "snapshot",
+) -> dict:
+    """Trigger a vzdump backup of a guest to the (configured) backup storage."""
+    if mode not in ("snapshot", "suspend", "stop"):
+        raise HTTPException(status_code=400, detail="Ungültiger Backup-Modus.")
+    _proxmox_kind(kind)  # validate the type
+    proxmox = get_proxmox()
+    resolved = _resolve_node(node)
+    target = storage or get_settings().proxmox_backup_storage
+    logger.info("Backup von %s/%s auf '%s' (Node %s).", kind, vmid, target, resolved)
+    upid = await proxmox.backup_guest(resolved, vmid, target, mode=mode)
+    return {"upid": upid}
+
+
 @router.delete("/{kind}/{vmid}")
 async def delete_guest(kind: str, vmid: int, node: Optional[str] = None) -> dict:
     """Delete a guest (must be stopped). Proxmox surfaces an error otherwise."""

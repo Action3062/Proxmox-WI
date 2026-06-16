@@ -55,6 +55,22 @@ export default function GuestList() {
     }
   };
 
+  const backup = async (guest) => {
+    const label = guest.name || `VMID ${guest.vmid}`;
+    if (!window.confirm(`Backup von "${label}" jetzt erstellen?`)) return;
+    setBusy(`${guest.type}-${guest.vmid}`);
+    setError(null);
+    try {
+      await api.guestBackup(guest.type, guest.vmid, guest.node);
+      // The backup runs as a Proxmox task in the background.
+      window.alert("Backup wurde gestartet (läuft im Hintergrund auf Proxmox).");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const remove = async (guest) => {
     const label = guest.name || `VMID ${guest.vmid}`;
     if (
@@ -165,6 +181,13 @@ export default function GuestList() {
                         </button>
                       </>
                     )}
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={isBusy}
+                      onClick={() => backup(g)}
+                    >
+                      Backup
+                    </button>
                   </td>
                 </tr>
               );

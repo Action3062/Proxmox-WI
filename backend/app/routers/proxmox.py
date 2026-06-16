@@ -50,6 +50,7 @@ def defaults() -> dict:
         "storage": s.proxmox_default_storage,
         "template_storage": s.proxmox_template_storage,
         "bridge": s.proxmox_default_bridge,
+        "backup_storage": s.proxmox_backup_storage,
     }
 
 
