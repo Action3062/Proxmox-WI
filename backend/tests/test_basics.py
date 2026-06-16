@@ -89,6 +89,13 @@ def test_install_script_resolves_dependencies():
     assert "portainer" in script
 
 
+def test_install_script_waits_for_apt_lock():
+    # The script must tolerate the cloud-init/apt-daily dpkg lock on VM first boot.
+    script = build_install_script(["curl"])
+    assert "DPkg::Lock::Timeout" in script
+    assert "cloud-init status --wait" in script
+
+
 def test_parse_upgradable():
     output = (
         "Listing...\n"

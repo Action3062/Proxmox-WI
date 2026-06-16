@@ -26,7 +26,7 @@ from .models import (
     UpdateInfo,
 )
 from .proxmox_client import ProxmoxAPIError, get_proxmox
-from .software import build_install_script
+from .software import APT_PRELUDE, build_install_script
 from .ssh_client import SSHError, get_ssh
 
 logger = logging.getLogger(__name__)
@@ -231,15 +231,13 @@ def parse_upgradable(output: str) -> List[UpdateInfo]:
     return updates
 
 
-_UPDATE_CHECK_SCRIPT = (
-    "export DEBIAN_FRONTEND=noninteractive\n"
-    "apt-get update >/dev/null 2>&1 || apt-get update\n"
+_UPDATE_CHECK_SCRIPT = APT_PRELUDE + (
+    "apt-get $APT_OPTS update >/dev/null 2>&1 || apt-get $APT_OPTS update\n"
     "apt list --upgradable 2>/dev/null || true\n"
 )
-_UPGRADE_SCRIPT = (
-    "export DEBIAN_FRONTEND=noninteractive\n"
-    "apt-get update\n"
-    "apt-get -y upgrade\n"
+_UPGRADE_SCRIPT = APT_PRELUDE + (
+    "apt-get $APT_OPTS update\n"
+    "apt-get $APT_OPTS -y upgrade\n"
 )
 
 

@@ -13,6 +13,27 @@ from typing import Dict, List
 
 from .models import SoftwarePackage
 
+# Prelude prepended to every apt operation run inside a guest. On VM first boot
+# cloud-init and the apt-daily timers may still hold the dpkg lock, so we wait for
+# them to finish and let apt wait for the lock instead of failing immediately.
+# On LXC (no cloud-init, no running apt) the waits return instantly.
+APT_PRELUDE = r"""#!/usr/bin/env bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+APT_OPTS="-o DPkg::Lock::Timeout=300"
+if command -v cloud-init >/dev/null 2>&1; then
+  cloud-init status --wait >/dev/null 2>&1 || true
+fi
+for _ in $(seq 1 150); do
+  if pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
+     || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
+    sleep 4
+  else
+    break
+  fi
+done
+"""
+
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -157,18 +178,16 @@ def build_install_script(selected_ids: List[str]) -> str:
         apt_packages.extend(entry.apt)
 
     lines: List[str] = [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        "export DEBIAN_FRONTEND=noninteractive",
+        APT_PRELUDE,
         "echo '==> Aktualisiere Paketlisten'",
-        "apt-get update",
+        "apt-get $APT_OPTS update",
     ]
 
     if apt_packages:
         # De-duplicate while keeping deterministic order.
         unique = sorted(set(apt_packages))
         lines.append(f"echo '==> Installiere Pakete: {' '.join(unique)}'")
-        lines.append("apt-get install -y " + " ".join(unique))
+        lines.append("apt-get $APT_OPTS install -y " + " ".join(unique))
 
     for entry in entries:
         if entry.script:
