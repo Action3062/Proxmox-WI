@@ -151,3 +151,38 @@ def test_resolve_node_unknown_raises():
     px = _FakeProxmox(["a", "b"], "pve")
     with pytest.raises(ProxmoxAPIError):
         asyncio.run(_resolve_deployment_node(px, None))
+
+
+def _client():
+    from app.config import get_settings
+    from app.proxmox_client import ProxmoxClient
+
+    return ProxmoxClient(get_settings())
+
+
+def test_wait_for_task_accepts_warnings():
+    # "WARNINGS: N" means the task completed (with warnings) -> success.
+    import asyncio
+
+    client = _client()
+
+    async def fake_status(node, upid):
+        return {"status": "stopped", "exitstatus": "WARNINGS: 1"}
+
+    client.task_status = fake_status
+    result = asyncio.run(client.wait_for_task("node", "upid", timeout=5))
+    assert result["exitstatus"] == "WARNINGS: 1"
+
+
+def test_wait_for_task_raises_on_real_error():
+    import asyncio
+    from app.proxmox_client import ProxmoxAPIError
+
+    client = _client()
+
+    async def fake_status(node, upid):
+        return {"status": "stopped", "exitstatus": "unable to create CT"}
+
+    client.task_status = fake_status
+    with pytest.raises(ProxmoxAPIError):
+        asyncio.run(client.wait_for_task("node", "upid", timeout=5))

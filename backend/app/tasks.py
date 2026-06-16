@@ -266,6 +266,21 @@ async def _resolve_deployment_node(proxmox, requested: Optional[str]) -> str:
     )
 
 
+async def _await_task(proxmox, node: str, upid: str, job: "Job", timeout: int) -> dict:
+    """Wait for a Proxmox task and surface any warnings into the job log."""
+    status = await proxmox.wait_for_task(node, upid, timeout=timeout)
+    exit_status = status.get("exitstatus")
+    if exit_status and str(exit_status).upper().startswith("WARNINGS"):
+        try:
+            for line in await proxmox.get_task_log(node, upid):
+                text = line.strip()
+                if text and "warn" in text.lower():
+                    manager.log(job, "warning", f"Proxmox-Warnung: {text}")
+        except ProxmoxAPIError:
+            pass  # the warning detail is optional; never fail because of it
+    return status
+
+
 # --- Workflows --------------------------------------------------------------
 async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
     """Full LXC provisioning workflow. Updates the job as it progresses."""
@@ -288,13 +303,13 @@ async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
         manager.log(job, "info", f"Zugewiesene VMID: {vmid}")
         params = build_lxc_params(request, vmid)
         upid = await proxmox.create_lxc(node, params)
-        await proxmox.wait_for_task(node, upid, timeout=600)
+        await _await_task(proxmox, node, upid, job, timeout=600)
         manager.log(job, "info", f"Container {vmid} wurde erstellt.")
 
         # 2. Start container and wait until it is reachable via pct exec
         manager.set_status(job, JobStatus.starting, progress=40)
         upid = await proxmox.start_lxc(node, vmid)
-        await proxmox.wait_for_task(node, upid, timeout=120)
+        await _await_task(proxmox, node, upid, job, timeout=120)
         if not await ssh.wait_container_ready(vmid):
             raise SSHError("Container reagiert nicht (pct exec nicht verfügbar).")
         manager.log(job, "info", "Container läuft.")

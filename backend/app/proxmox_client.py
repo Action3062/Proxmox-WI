@@ -145,18 +145,33 @@ class ProxmoxClient:
     async def wait_for_task(
         self, node: str, upid: str, timeout: int = 300, interval: float = 2.0
     ) -> dict:
-        """Poll a task until it stops; raise if it failed or timed out."""
+        """Poll a task until it stops; raise only on a real failure or timeout.
+
+        A task may finish with exitstatus "OK" or "WARNINGS: N" (completed *with*
+        warnings) — both count as success. Any other non-OK status is an error.
+        """
         elapsed = 0.0
         while elapsed < timeout:
             status_data = await self.task_status(node, upid)
             if status_data.get("status") == "stopped":
                 exit_status = status_data.get("exitstatus")
-                if exit_status not in ("OK", None):
-                    raise ProxmoxAPIError(f"Proxmox-Task fehlgeschlagen: {exit_status}")
-                return status_data
+                if (
+                    exit_status is None
+                    or exit_status == "OK"
+                    or str(exit_status).upper().startswith("WARNINGS")
+                ):
+                    return status_data
+                raise ProxmoxAPIError(f"Proxmox-Task fehlgeschlagen: {exit_status}")
             await asyncio.sleep(interval)
             elapsed += interval
         raise ProxmoxAPIError("Zeitüberschreitung beim Warten auf einen Proxmox-Task.")
+
+    async def get_task_log(self, node: str, upid: str, limit: int = 100) -> List[str]:
+        """Return the task's log lines (used to surface warnings to the user)."""
+        data = await self._request(
+            "GET", f"/nodes/{node}/tasks/{upid}/log", params={"limit": limit}
+        )
+        return [entry.get("t", "") for entry in (data or []) if isinstance(entry, dict)]
 
 
 @lru_cache
