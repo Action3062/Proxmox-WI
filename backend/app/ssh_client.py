@@ -119,7 +119,7 @@ class ProxmoxSSH:
                 proc = await conn.create_process(
                     command,
                     term_type="xterm",
-                    term_size=(120, 40),
+                    term_size=(200, 50),
                     stderr=asyncssh.STDOUT,
                     encoding="utf-8",
                     errors="replace",
@@ -135,9 +135,22 @@ class ProxmoxSSH:
                         pass
 
                 feeder = asyncio.create_task(_feed()) if autoaccept else None
+                buffer = ""
                 try:
-                    async for line in proc.stdout:
-                        on_output(line)
+                    # Read in chunks (not lines): the community-scripts use \r
+                    # based spinners for running steps, so line iteration would
+                    # appear frozen. Convert \r to \n so each update is surfaced.
+                    while True:
+                        chunk = await proc.stdout.read(4096)
+                        if not chunk:
+                            break
+                        buffer += chunk.replace("\r", "\n")
+                        parts = buffer.split("\n")
+                        buffer = parts.pop()  # keep the incomplete tail
+                        for part in parts:
+                            on_output(part)
+                    if buffer:
+                        on_output(buffer)
                 finally:
                     if feeder:
                         feeder.cancel()

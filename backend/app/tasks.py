@@ -688,11 +688,17 @@ async def run_install_updates(job_id: str) -> None:
         _fail(job, f"Unerwarteter Fehler: {exc}")
 
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"           # CSI sequences (colors, cursor)
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"   # OSC sequences
+    r"|\x1b[()*+][A-Za-z0-9]"               # charset selection (e.g. ESC ( B)
+    r"|\x1b[@-Z\\-_]"                        # other 2-char escapes
+)
+_SPINNER_PREFIX = re.compile(r"^[^0-9A-Za-zÄÖÜäöüß]+")
 
 
 def _strip_ansi(text: str) -> str:
-    return _ANSI_RE.sub("", text).replace("\r", "")
+    return _ANSI_RE.sub("", text)
 
 
 async def run_community_script(job_id: str, slug: str) -> None:
@@ -718,10 +724,17 @@ async def run_community_script(job_id: str, slug: str) -> None:
             "in der Proxmox-Shell ausführen.",
         )
 
+        # Collapse repeated spinner frames (same message, rotating glyph) and skip
+        # blank/escape-only lines, so the log stays readable.
+        last_key = {"v": ""}
+
         def _on_output(text: str) -> None:
-            for line in _strip_ansi(text).splitlines():
-                if line.strip():
-                    manager.log(job, "info", line)
+            line = _strip_ansi(text).rstrip()
+            key = _SPINNER_PREFIX.sub("", line).strip()
+            if not key or key == last_key["v"]:
+                return
+            last_key["v"] = key
+            manager.log(job, "info", line.strip())
 
         exit_status = await ssh.run_pty_stream(command, _on_output, timeout=3600)
         if exit_status != 0:
