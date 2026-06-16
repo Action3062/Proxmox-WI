@@ -353,7 +353,7 @@ async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> No
         manager.set_status(job, JobStatus.installing, progress=60)
         manager.log(job, "info", "Installiere ausgewählte Software …")
         install_result = await ssh.run_in_container(
-            vmid, build_install_script(request.software), timeout=1800
+            vmid, build_install_script(request.software, request.language), timeout=1800
         )
         manager.log_output(job, install_result.stdout)
         if not install_result.ok:
@@ -494,7 +494,7 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
             "(über den Guest-Agent ohne Zwischenausgabe)",
         )
         install_result = await proxmox.agent_exec(
-            node, vmid, build_install_script(request.software), timeout=1800
+            node, vmid, build_install_script(request.software, request.language), timeout=1800
         )
         manager.log_output(job, install_result.stdout)
         if not install_result.ok:

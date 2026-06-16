@@ -21,6 +21,7 @@ const INITIAL = {
   password: "",
   ssh_key: "",
   autostart: false,
+  language: "de",
   software: [],
 };
 
@@ -377,6 +378,15 @@ export default function CreateContainerForm({ onCreated }) {
 
       <fieldset>
         <legend>Optionen</legend>
+        <div className="grid">
+          <label>
+            Sprache / Tastatur
+            <select value={form.language} onChange={(e) => set("language", e.target.value)}>
+              <option value="de">Deutsch (de_DE.UTF-8, Tastatur de)</option>
+              <option value="en">Englisch (en_US.UTF-8, Tastatur us)</option>
+            </select>
+          </label>
+        </div>
         <label className="checkbox">
           <input
             type="checkbox"

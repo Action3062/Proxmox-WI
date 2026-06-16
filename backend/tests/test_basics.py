@@ -97,6 +97,13 @@ def test_install_script_waits_for_apt_lock():
     assert "apt-daily" in script
 
 
+def test_install_script_sets_locale_and_keyboard():
+    de = build_install_script(["curl"], "de")
+    assert "de_DE.UTF-8" in de and "KEYMAP=de" in de and "Europe/Berlin" in de
+    en = build_install_script(["curl"], "en")
+    assert "en_US.UTF-8" in en and "KEYMAP=us" in en
+
+
 def test_parse_upgradable():
     output = (
         "Listing...\n"

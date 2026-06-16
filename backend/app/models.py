@@ -95,6 +95,7 @@ class ContainerCreateRequest(BaseModel):
 
     # Options
     autostart: bool = False
+    language: Literal["de", "en"] = "de"  # locale + console keyboard layout
     software: List[str] = Field(default_factory=list)
 
     @field_validator("hostname")

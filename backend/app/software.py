@@ -20,27 +20,52 @@ from .models import SoftwarePackage
 APT_PRELUDE = r"""#!/usr/bin/env bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-# Stop needrestart from opening an interactive prompt that would hang apt
-# (happens on Debian 12 / Ubuntu 22.04 when services need restarting).
+# Stop needrestart from opening an interactive prompt that would hang apt.
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 APT_OPTS="-o DPkg::Lock::Timeout=600"
 # On first boot Debian/Ubuntu run apt-daily + unattended-upgrades, which install
-# all pending updates and hold the dpkg lock for many minutes. Stop them so
-# provisioning is fast, then wait for any in-progress run to release the lock and
-# repair the package DB in case a run was interrupted.
+# all pending updates and hold the dpkg lock for many minutes. Stop them, give a
+# short grace period, then forcefully terminate anything still holding the lock,
+# clear stale lock files and repair the package DB. This keeps provisioning fast.
 systemctl stop apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
 systemctl stop apt-daily.service apt-daily-upgrade.service unattended-upgrades.service >/dev/null 2>&1 || true
-for _ in $(seq 1 60); do
-  if pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
-     || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
-    sleep 3
-  else
-    break
-  fi
+for _ in $(seq 1 20); do
+  pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
+    || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1 || break
+  sleep 3
 done
+# Use exact process-name match (-x), never -f: -f would match our own shell
+# (whose arguments contain "apt") and kill the provisioning script itself.
+for p in unattended-upgr apt-get apt dpkg; do pkill -9 -x "$p" >/dev/null 2>&1 || true; done
+rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1 || true
 dpkg --configure -a >/dev/null 2>&1 || true
 """
+
+# Locale / keyboard / timezone presets selectable in the UI.
+_LOCALES = {
+    "de": {"locale": "de_DE.UTF-8", "keymap": "de", "tz": "Europe/Berlin"},
+    "en": {"locale": "en_US.UTF-8", "keymap": "us", "tz": "Etc/UTC"},
+}
+
+
+def _locale_commands(language: str) -> List[str]:
+    """Shell commands to set locale, console keymap and timezone in the guest."""
+    cfg = _LOCALES.get(language, _LOCALES["de"])
+    loc, keymap, tz = cfg["locale"], cfg["keymap"], cfg["tz"]
+    return [
+        f"echo '==> Konfiguriere Sprache/Tastatur ({language})'",
+        f"sed -i 's/^# *{loc} UTF-8/{loc} UTF-8/' /etc/locale.gen 2>/dev/null || true",
+        f"grep -q '^{loc}' /etc/locale.gen 2>/dev/null || echo '{loc} UTF-8' >> /etc/locale.gen",
+        f"locale-gen {loc} || true",
+        f"update-locale LANG={loc} || true",
+        f"echo 'KEYMAP={keymap}' > /etc/vconsole.conf",
+        f'printf \'XKBLAYOUT="{keymap}"\\nXKBMODEL="pc105"\\n\' > /etc/default/keyboard',
+        f"command -v localectl >/dev/null 2>&1 && localectl set-keymap {keymap} 2>/dev/null || true",
+        f"command -v timedatectl >/dev/null 2>&1 && timedatectl set-timezone {tz} 2>/dev/null || true",
+        f"ln -sf /usr/share/zoneinfo/{tz} /etc/localtime 2>/dev/null || true",
+    ]
 
 
 @dataclass(frozen=True)
@@ -173,29 +198,29 @@ def _resolve(selected_ids: List[str]) -> List[CatalogEntry]:
     return ordered
 
 
-def build_install_script(selected_ids: List[str]) -> str:
+def build_install_script(selected_ids: List[str], language: str = "de") -> str:
     """Build a single idempotent bash script that installs the selected software.
 
-    The script is executed inside the container via ``pct exec ... bash -s`` and
-    is transferred base64-encoded, so its content never touches a shell command
-    line on the Proxmox host.
+    The script is executed inside the guest (LXC via ``pct exec``, VM via the
+    guest agent) and is transferred base64-encoded, so its content never touches a
+    shell command line on the Proxmox host. It also configures locale/keyboard.
     """
     entries = _resolve(selected_ids)
-    apt_packages: List[str] = []
+    apt_packages: List[str] = ["locales"]  # required for locale-gen
     for entry in entries:
         apt_packages.extend(entry.apt)
 
+    unique = sorted(set(apt_packages))
     lines: List[str] = [
         APT_PRELUDE,
         "echo '==> Aktualisiere Paketlisten'",
         "apt-get $APT_OPTS update",
+        f"echo '==> Installiere Pakete: {' '.join(unique)}'",
+        "apt-get $APT_OPTS install -y " + " ".join(unique),
     ]
 
-    if apt_packages:
-        # De-duplicate while keeping deterministic order.
-        unique = sorted(set(apt_packages))
-        lines.append(f"echo '==> Installiere Pakete: {' '.join(unique)}'")
-        lines.append("apt-get $APT_OPTS install -y " + " ".join(unique))
+    # Locale/keyboard/timezone (after 'locales' is installed).
+    lines.extend(_locale_commands(language))
 
     for entry in entries:
         if entry.script:
