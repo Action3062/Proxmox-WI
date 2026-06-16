@@ -236,6 +236,42 @@ def build_ssh_pwauth_script() -> str:
     )
 
 
+def build_autologin_script(username: str) -> str:
+    """Configure console auto-login for ``username`` (VGA tty, serial, LXC console).
+
+    Overrides the relevant getty units with an ``agetty --autologin`` ExecStart.
+    The username is validated by the model (safe character set).
+    """
+    u = username
+    tty = f"ExecStart=-/sbin/agetty --autologin {u} --noclear %I $TERM"
+    serial = f"ExecStart=-/sbin/agetty --autologin {u} --keep-baud 115200,57600,38400,9600 %I $TERM"
+    console = f"ExecStart=-/sbin/agetty --autologin {u} --noclear --keep-baud console 115200,57600,38400,9600 $TERM"
+
+    def override(unit: str, execline: str) -> str:
+        d = f"/etc/systemd/system/{unit}.d"
+        return (
+            f"mkdir -p {d}\n"
+            f"cat > {d}/autologin.conf <<'EOF'\n"
+            "[Service]\n"
+            "ExecStart=\n"
+            f"{execline}\n"
+            "EOF\n"
+        )
+
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        + override("getty@tty1.service", tty)  # VM VGA / noVNC console
+        + override("serial-getty@ttyS0.service", serial)  # VM serial console
+        + override("console-getty.service", console)  # LXC `pct console`
+        + "systemctl daemon-reload 2>/dev/null || true\n"
+        "systemctl restart getty@tty1 2>/dev/null || true\n"
+        "systemctl restart serial-getty@ttyS0 2>/dev/null || true\n"
+        "systemctl restart console-getty 2>/dev/null || true\n"
+        "echo '==> Autologin konfiguriert'\n"
+    )
+
+
 def parse_upgradable(output: str) -> List[UpdateInfo]:
     """Parse the output of ``apt list --upgradable`` into structured entries."""
     updates: List[UpdateInfo] = []
@@ -319,6 +355,16 @@ async def _finalize_updates(job: "Job", request: ContainerCreateRequest) -> None
                 job, "warning",
                 "Automatische Sicherheitsupdates konnten nicht vollständig eingerichtet werden.",
             )
+
+
+async def _configure_autologin_if_requested(job: "Job", request: ContainerCreateRequest) -> None:
+    """Set up console auto-login inside the guest (LXC or VM) if requested."""
+    if not request.console_autologin:
+        return
+    manager.log(job, "info", "Richte Konsolen-Autologin ein …")
+    result = await _run_guest_script(job, build_autologin_script(request.username), timeout=120)
+    if not result.ok:
+        manager.log(job, "warning", "Autologin konnte nicht vollständig eingerichtet werden.")
 
 
 async def _create_backup_if_requested(job: "Job", request: ContainerCreateRequest) -> None:
@@ -430,6 +476,8 @@ async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> No
         if request.password:
             manager.log(job, "info", "Aktiviere SSH-Passwort-Anmeldung.")
             await ssh.run_in_container(vmid, build_ssh_pwauth_script(), timeout=120)
+
+        await _configure_autologin_if_requested(job, request)
 
         # 4. Install selected software
         manager.set_status(job, JobStatus.installing, progress=60)
@@ -576,6 +624,8 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
         if request.password:
             manager.log(job, "info", "Aktiviere SSH-Passwort-Anmeldung.")
             await proxmox.agent_exec(node, vmid, build_ssh_pwauth_script(), timeout=120)
+
+        await _configure_autologin_if_requested(job, request)
 
         # 4. Install selected software via the guest agent
         manager.set_status(job, JobStatus.installing, progress=60)

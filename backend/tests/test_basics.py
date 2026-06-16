@@ -278,6 +278,15 @@ def test_unattended_upgrades_script():
     assert "apt-daily.timer" in s
 
 
+def test_autologin_script():
+    from app.tasks import build_autologin_script
+
+    s = build_autologin_script("deploy")
+    assert "--autologin deploy" in s
+    assert "getty@tty1.service.d" in s
+    assert "console-getty.service.d" in s  # LXC console
+
+
 def test_ssh_pwauth_script():
     from app.tasks import build_ssh_pwauth_script
 

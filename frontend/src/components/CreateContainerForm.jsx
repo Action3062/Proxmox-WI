@@ -21,6 +21,7 @@ const INITIAL = {
   password: "",
   ssh_key: "",
   autostart: false,
+  console_autologin: false,
   language: "de",
   install_updates: true,
   auto_security_updates: true,
@@ -402,6 +403,14 @@ export default function CreateContainerForm({ onCreated }) {
             onChange={(e) => set("autostart", e.target.checked)}
           />
           Autostart aktivieren
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.console_autologin}
+            onChange={(e) => set("console_autologin", e.target.checked)}
+          />
+          Konsolen-Autologin (ohne Eingabe von Zugangsdaten)
         </label>
         <label className="checkbox">
           <input
