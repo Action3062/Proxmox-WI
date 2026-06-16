@@ -286,6 +286,40 @@ def test_ssh_pwauth_script():
     assert "00-pwauth.conf" in s
 
 
+def test_get_lxc_ip_parses_interfaces():
+    import asyncio
+
+    client = _client()
+
+    async def fake_request(method, path, **kwargs):
+        return [
+            {"name": "lo", "inet": "127.0.0.1/8"},
+            {"name": "eth0", "inet": "192.168.1.50/24"},
+        ]
+
+    client._request = fake_request
+    assert asyncio.run(client.get_lxc_ip("node", 100)) == "192.168.1.50"
+
+
+def test_get_qemu_ip_parses_agent():
+    import asyncio
+
+    client = _client()
+
+    async def fake_request(method, path, **kwargs):
+        return {
+            "result": [
+                {"name": "lo", "ip-addresses": [
+                    {"ip-address-type": "ipv4", "ip-address": "127.0.0.1"}]},
+                {"name": "eth0", "ip-addresses": [
+                    {"ip-address-type": "ipv4", "ip-address": "192.168.1.51"}]},
+            ]
+        }
+
+    client._request = fake_request
+    assert asyncio.run(client.get_qemu_ip("node", 100)) == "192.168.1.51"
+
+
 def test_detect_boot_disk():
     from app.tasks import _detect_boot_disk
 

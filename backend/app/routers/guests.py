@@ -6,6 +6,7 @@ actions (start/shutdown/reboot) and deletion.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -63,6 +64,18 @@ async def list_guests() -> List[dict]:
                 continue  # don't list templates as manageable guests
             guests.append(_format("vm", node, vm))
     guests.sort(key=lambda g: (g.get("vmid") or 0))
+
+    # Resolve the live IP for running guests in parallel (best effort).
+    async def _fill_ip(guest: dict) -> None:
+        if guest.get("status") != "running":
+            guest["ip"] = None
+            return
+        if guest["type"] == "lxc":
+            guest["ip"] = await proxmox.get_lxc_ip(guest["node"], guest["vmid"])
+        else:
+            guest["ip"] = await proxmox.get_qemu_ip(guest["node"], guest["vmid"])
+
+    await asyncio.gather(*(_fill_ip(g) for g in guests))
     return guests
 
 

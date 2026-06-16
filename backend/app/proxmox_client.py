@@ -235,6 +235,37 @@ class ProxmoxClient:
         )
         return str(upid)
 
+    async def get_lxc_ip(self, node: str, vmid: int) -> Optional[str]:
+        """Best-effort primary IPv4 of a running container (None on failure)."""
+        try:
+            data = await self._request("GET", f"/nodes/{node}/lxc/{vmid}/interfaces")
+        except ProxmoxAPIError:
+            return None
+        for iface in data or []:
+            name = iface.get("name")
+            inet = iface.get("inet")  # e.g. "192.168.1.50/24"
+            if name and name != "lo" and inet:
+                return inet.split("/")[0]
+        return None
+
+    async def get_qemu_ip(self, node: str, vmid: int) -> Optional[str]:
+        """Best-effort primary IPv4 of a running VM via the guest agent."""
+        try:
+            data = await self._request(
+                "GET", f"/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces"
+            )
+        except ProxmoxAPIError:
+            return None
+        result = data.get("result") if isinstance(data, dict) else data
+        for iface in result or []:
+            if iface.get("name") in ("lo", "lo0"):
+                continue
+            for addr in iface.get("ip-addresses") or []:
+                ip = addr.get("ip-address")
+                if addr.get("ip-address-type") == "ipv4" and ip and not ip.startswith("127."):
+                    return ip
+        return None
+
     # --- QEMU guest agent (used to run software install / update checks) ---
     async def agent_ping(self, node: str, vmid: int) -> Any:
         return await self._request("POST", f"/nodes/{node}/qemu/{vmid}/agent/ping")

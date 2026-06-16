@@ -99,6 +99,7 @@ export default function GuestList() {
               <th>Typ</th>
               <th>VMID</th>
               <th>Status</th>
+              <th>IP</th>
               <th>CPU</th>
               <th>RAM</th>
               <th>Uptime</th>
@@ -120,6 +121,7 @@ export default function GuestList() {
                       {g.status || "—"}
                     </span>
                   </td>
+                  <td>{g.ip || "—"}</td>
                   <td>{g.cpus ?? "—"}</td>
                   <td>
                     {running
