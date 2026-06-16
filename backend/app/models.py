@@ -102,6 +102,19 @@ class ContainerCreateRequest(BaseModel):
             raise ValueError("Ungültiger Hostname.")
         return value
 
+    @field_validator("template")
+    @classmethod
+    def _validate_template(cls, value: str) -> str:
+        # Must be a Proxmox volume id ("storage:vztmpl/file"), never a raw path.
+        # Proxmox rejects arbitrary filesystem paths for non-root API tokens with
+        # "Only root can pass arbitrary filesystem paths", so we catch it early.
+        if value.startswith("/") or ":" not in value:
+            raise ValueError(
+                "Ungültiges Template. Bitte ein Template aus der Liste wählen "
+                "(Format 'storage:vztmpl/datei'), keinen Dateipfad."
+            )
+        return value
+
     @field_validator("username")
     @classmethod
     def _validate_username(cls, value: str) -> str:
