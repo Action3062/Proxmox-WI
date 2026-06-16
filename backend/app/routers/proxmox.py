@@ -120,6 +120,23 @@ async def list_templates(
     return templates
 
 
+@router.get("/vm-templates")
+async def list_vm_templates(node: Optional[str] = None) -> List[dict]:
+    """List QEMU templates (template=1) available for cloning."""
+    proxmox = get_proxmox()
+    vms = await proxmox.list_qemu(_resolve_node(node))
+    templates = []
+    for vm in vms:
+        if not vm.get("template"):
+            continue
+        name = (vm.get("name") or "").lower()
+        os_name = "ubuntu" if "ubuntu" in name else "debian" if "debian" in name else "other"
+        templates.append(
+            {"vmid": vm.get("vmid"), "name": vm.get("name"), "os": os_name}
+        )
+    return templates
+
+
 @router.get("/next-vmid")
 async def next_vmid() -> dict:
     proxmox = get_proxmox()

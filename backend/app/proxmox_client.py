@@ -8,7 +8,9 @@ is required and the token never leaves the server. All errors are converted into
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +23,28 @@ logger = logging.getLogger(__name__)
 
 class ProxmoxAPIError(Exception):
     """User-facing Proxmox API error with an understandable message."""
+
+
+@dataclass
+class AgentExecResult:
+    """Result of a command executed inside a VM via the QEMU guest agent."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+    @property
+    def ok(self) -> bool:
+        return self.exit_code == 0
+
+
+def _normalise(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop None values and convert booleans to Proxmox's 0/1 form."""
+    return {
+        k: (1 if v is True else 0 if v is False else v)
+        for k, v in params.items()
+        if v is not None
+    }
 
 
 class ProxmoxClient:
@@ -126,13 +150,7 @@ class ProxmoxClient:
     # --- Write endpoints --------------------------------------------------
     async def create_lxc(self, node: str, params: Dict[str, Any]) -> str:
         """Create an LXC container. Returns the task UPID."""
-        # Proxmox expects form-encoded values; normalise bools to 0/1.
-        normalised = {
-            k: (1 if v is True else 0 if v is False else v)
-            for k, v in params.items()
-            if v is not None
-        }
-        upid = await self._request("POST", f"/nodes/{node}/lxc", data=normalised)
+        upid = await self._request("POST", f"/nodes/{node}/lxc", data=_normalise(params))
         return str(upid)
 
     async def start_lxc(self, node: str, vmid: int) -> str:
@@ -172,6 +190,86 @@ class ProxmoxClient:
             "GET", f"/nodes/{node}/tasks/{upid}/log", params={"limit": limit}
         )
         return [entry.get("t", "") for entry in (data or []) if isinstance(entry, dict)]
+
+    # --- VM (QEMU) -------------------------------------------------------
+    async def list_qemu(self, node: str) -> List[dict]:
+        return await self._request("GET", f"/nodes/{node}/qemu") or []
+
+    async def get_qemu_config(self, node: str, vmid: int) -> dict:
+        return await self._request("GET", f"/nodes/{node}/qemu/{vmid}/config") or {}
+
+    async def clone_qemu(self, node: str, template_id: int, params: Dict[str, Any]) -> str:
+        """Clone a VM template. Returns the task UPID."""
+        upid = await self._request(
+            "POST", f"/nodes/{node}/qemu/{template_id}/clone", data=_normalise(params)
+        )
+        return str(upid)
+
+    async def set_qemu_config(self, node: str, vmid: int, params: Dict[str, Any]) -> None:
+        await self._request(
+            "PUT", f"/nodes/{node}/qemu/{vmid}/config", data=_normalise(params)
+        )
+
+    async def resize_qemu_disk(self, node: str, vmid: int, disk: str, size: str) -> None:
+        await self._request(
+            "PUT", f"/nodes/{node}/qemu/{vmid}/resize", data={"disk": disk, "size": size}
+        )
+
+    async def start_qemu(self, node: str, vmid: int) -> str:
+        upid = await self._request("POST", f"/nodes/{node}/qemu/{vmid}/status/start")
+        return str(upid)
+
+    # --- QEMU guest agent (used to run software install / update checks) ---
+    async def agent_ping(self, node: str, vmid: int) -> Any:
+        return await self._request("POST", f"/nodes/{node}/qemu/{vmid}/agent/ping")
+
+    async def wait_agent(self, node: str, vmid: int, attempts: int = 60, delay: float = 5.0) -> bool:
+        """Wait until the guest agent answers (cloud-init done, agent running)."""
+        for _ in range(attempts):
+            try:
+                await self.agent_ping(node, vmid)
+                return True
+            except ProxmoxAPIError:
+                pass
+            await asyncio.sleep(delay)
+        return False
+
+    async def agent_exec(
+        self, node: str, vmid: int, script: str, timeout: int = 1800
+    ) -> AgentExecResult:
+        """Run a bash script inside the VM via the guest agent and return output.
+
+        The script is base64-encoded (safe alphabet only) and decoded inside the
+        guest, so no quoting/encoding issues arise on the transport.
+        """
+        encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
+        inner = f"echo {encoded} | base64 -d | bash"
+        started = await self._request(
+            "POST",
+            f"/nodes/{node}/qemu/{vmid}/agent/exec",
+            data={"command": ["/bin/bash", "-c", inner]},
+        )
+        pid = started.get("pid") if isinstance(started, dict) else None
+        if pid is None:
+            raise ProxmoxAPIError("Guest-Agent: keine PID erhalten.")
+
+        elapsed = 0.0
+        interval = 3.0
+        while elapsed < timeout:
+            status = await self._request(
+                "GET",
+                f"/nodes/{node}/qemu/{vmid}/agent/exec-status",
+                params={"pid": pid},
+            ) or {}
+            if status.get("exited"):
+                return AgentExecResult(
+                    exit_code=int(status.get("exitcode") or 0),
+                    stdout=status.get("out-data", "") or "",
+                    stderr=status.get("err-data", "") or "",
+                )
+            await asyncio.sleep(interval)
+            elapsed += interval
+        raise ProxmoxAPIError("Zeitüberschreitung bei einem Guest-Agent-Befehl.")
 
 
 @lru_cache

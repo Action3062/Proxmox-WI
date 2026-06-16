@@ -43,8 +43,11 @@ async def create_container(request: ContainerCreateRequest) -> JobResponse:
             detail=f"Unbekannte Softwarepakete: {', '.join(sorted(unknown))}",
         )
 
-    job = manager.create("lxc", request)
-    logger.info("Bereitstellung gestartet (Job %s, Host '%s').", job.id, request.hostname)
+    job = manager.create(request.type, request)
+    logger.info(
+        "Bereitstellung gestartet (Job %s, Typ %s, Host '%s').",
+        job.id, request.type, request.hostname,
+    )
     # Run the long-lived workflow in the background; the client polls the job.
     spawn(run_deployment(job.id, request))
     return job.to_response()

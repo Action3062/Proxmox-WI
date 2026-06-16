@@ -11,9 +11,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from .models import (
     ContainerCreateRequest,
@@ -229,16 +231,35 @@ def parse_upgradable(output: str) -> List[UpdateInfo]:
     return updates
 
 
-async def _check_updates(vmid: int) -> Tuple[List[UpdateInfo], str]:
-    """Run ``apt update`` + ``apt list --upgradable`` inside the container."""
+_UPDATE_CHECK_SCRIPT = (
+    "export DEBIAN_FRONTEND=noninteractive\n"
+    "apt-get update >/dev/null 2>&1 || apt-get update\n"
+    "apt list --upgradable 2>/dev/null || true\n"
+)
+_UPGRADE_SCRIPT = (
+    "export DEBIAN_FRONTEND=noninteractive\n"
+    "apt-get update\n"
+    "apt-get -y upgrade\n"
+)
+
+
+async def _run_guest_script(job: "Job", script: str, timeout: int = 1800):
+    """Run a script inside the guest: LXC via ``pct exec``, VM via guest agent.
+
+    Both ``CommandResult`` (SSH) and ``AgentExecResult`` expose ``ok``/``stdout``/
+    ``stderr``, so callers can treat the return value uniformly.
+    """
+    if job.type == "vm":
+        proxmox = get_proxmox()
+        return await proxmox.agent_exec(job.node, job.vmid, script, timeout=timeout)
     ssh = get_ssh()
-    script = (
-        "export DEBIAN_FRONTEND=noninteractive\n"
-        "apt-get update >/dev/null 2>&1 || apt-get update\n"
-        "apt list --upgradable 2>/dev/null || true\n"
-    )
-    result = await ssh.run_in_container(vmid, script, timeout=300)
-    return parse_upgradable(result.stdout), result.stdout
+    return await ssh.run_in_container(job.vmid, script, timeout=timeout)
+
+
+async def _check_updates_for_job(job: "Job") -> List[UpdateInfo]:
+    """Run apt update + list upgradable inside the guest and parse the result."""
+    result = await _run_guest_script(job, _UPDATE_CHECK_SCRIPT, timeout=300)
+    return parse_upgradable(result.stdout)
 
 
 async def _resolve_deployment_node(proxmox, requested: Optional[str]) -> str:
@@ -283,13 +304,20 @@ async def _await_task(proxmox, node: str, upid: str, job: "Job", timeout: int) -
 
 # --- Workflows --------------------------------------------------------------
 async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
-    """Full LXC provisioning workflow. Updates the job as it progresses."""
+    """Dispatch to the LXC or VM provisioning workflow."""
     job = manager.get(job_id)
     if job is None:  # pragma: no cover - should not happen
         return
+    if request.type == "vm":
+        await _run_vm_deployment(job, request)
+    else:
+        await _run_lxc_deployment(job, request)
+
+
+async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> None:
+    """Full LXC provisioning workflow. Updates the job as it progresses."""
     proxmox = get_proxmox()
     ssh = get_ssh()
-
     try:
         # Resolve and validate the target node up front for a clear error message.
         node = await _resolve_deployment_node(proxmox, request.node)
@@ -339,10 +367,9 @@ async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
 
         # 5. Check for available updates (do not install automatically)
         manager.set_status(job, JobStatus.checking_updates, progress=85)
-        updates, _ = await _check_updates(vmid)
-        job.updates = updates
+        job.updates = await _check_updates_for_job(job)
         job.updates_checked = True
-        manager.log(job, "info", f"{len(updates)} Update(s) verfügbar.")
+        manager.log(job, "info", f"{len(job.updates)} Update(s) verfügbar.")
 
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")
@@ -353,30 +380,156 @@ async def run_deployment(job_id: str, request: ContainerCreateRequest) -> None:
         _fail(job, f"Unerwarteter Fehler: {exc}")
 
 
+# --- VM helpers -------------------------------------------------------------
+def build_vm_config(request: ContainerCreateRequest) -> dict:
+    """Build the cloud-init + resource config applied to the cloned VM."""
+    net = f"virtio,bridge={request.bridge}"
+    if request.ip_config == IPConfigMode.static:
+        ipconfig = f"ip={request.ip_address}"
+        if request.gateway:
+            ipconfig += f",gw={request.gateway}"
+    else:
+        ipconfig = "ip=dhcp"
+
+    config: dict = {
+        "cores": request.cores,
+        "memory": request.memory_mb,
+        "agent": 1,  # enable the QEMU guest agent (needed for software/updates)
+        "net0": net,
+        "ciuser": request.username,
+        "ipconfig0": ipconfig,
+        "onboot": request.autostart,
+    }
+    if request.password:
+        config["cipassword"] = request.password
+    if request.ssh_key:
+        # Proxmox expects the sshkeys value to be URL-encoded.
+        config["sshkeys"] = urllib.parse.quote(request.ssh_key.strip(), safe="")
+    if request.description:
+        config["description"] = request.description
+    return config
+
+
+def _detect_boot_disk(config: dict) -> Optional[str]:
+    """Find the VM's primary disk key (for resizing) from its config."""
+    match = re.search(r"order=([^,;]+)", config.get("boot", "") or "")
+    if match:
+        first = match.group(1).split(";")[0]
+        if first in config:
+            return first
+    bootdisk = config.get("bootdisk")
+    if bootdisk and bootdisk in config:
+        return bootdisk
+    for key in ("scsi0", "virtio0", "sata0", "ide0"):
+        value = config.get(key)
+        if value and "media=cdrom" not in value and "cloudinit" not in value:
+            return key
+    return None
+
+
+async def _resize_vm_disk(proxmox, node: str, vmid: int, disk_gb: int, job: "Job") -> None:
+    """Grow the VM's primary disk to the requested size (best effort)."""
+    try:
+        config = await proxmox.get_qemu_config(node, vmid)
+        disk = _detect_boot_disk(config)
+        if not disk:
+            manager.log(job, "warning", "Boot-Disk nicht erkannt – Größe unverändert.")
+            return
+        await proxmox.resize_qemu_disk(node, vmid, disk, f"{disk_gb}G")
+        manager.log(job, "info", f"Disk {disk} auf {disk_gb} GB gesetzt.")
+    except ProxmoxAPIError as exc:
+        # E.g. when the target is smaller than the template disk (cannot shrink).
+        manager.log(job, "warning", f"Disk-Größe nicht angepasst: {exc}")
+
+
+async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> None:
+    """Full VM workflow: clone a cloud-init template, configure, install, update."""
+    proxmox = get_proxmox()
+    try:
+        node = await _resolve_deployment_node(proxmox, request.node)
+        job.node = node
+
+        # 1. Clone the cloud-init template
+        manager.set_status(job, JobStatus.creating, progress=10)
+        vmid = await proxmox.next_vmid()
+        job.vmid = vmid
+        manager.log(
+            job, "info",
+            f"Klone VM-Template {request.vm_template_id} -> VMID {vmid} auf Node '{node}'.",
+        )
+        clone_params = {
+            "newid": vmid,
+            "name": request.hostname,
+            "full": True,
+            "storage": request.storage,
+        }
+        upid = await proxmox.clone_qemu(node, request.vm_template_id, clone_params)
+        await _await_task(proxmox, node, upid, job, timeout=1800)
+        manager.log(job, "info", f"VM {vmid} geklont.")
+
+        # 2. Apply resources + cloud-init configuration, then resize the disk
+        await proxmox.set_qemu_config(node, vmid, build_vm_config(request))
+        manager.log(job, "info", "VM konfiguriert (Ressourcen + cloud-init).")
+        await _resize_vm_disk(proxmox, node, vmid, request.disk_gb, job)
+
+        # 3. Start and wait for the guest agent (cloud-init must finish first)
+        manager.set_status(job, JobStatus.starting, progress=40)
+        upid = await proxmox.start_qemu(node, vmid)
+        await _await_task(proxmox, node, upid, job, timeout=120)
+        manager.log(job, "info", "VM gestartet, warte auf Guest-Agent (cloud-init) …")
+        if not await proxmox.wait_agent(node, vmid):
+            raise ProxmoxAPIError(
+                "Guest-Agent nicht erreichbar. Ist 'qemu-guest-agent' im Template "
+                "installiert und cloud-init durchgelaufen?"
+            )
+        manager.log(job, "info", "Guest-Agent bereit.")
+
+        # 4. Install selected software via the guest agent
+        manager.set_status(job, JobStatus.installing, progress=60)
+        manager.log(job, "info", "Installiere ausgewählte Software …")
+        install_result = await proxmox.agent_exec(
+            node, vmid, build_install_script(request.software), timeout=1800
+        )
+        manager.log_output(job, install_result.stdout)
+        if not install_result.ok:
+            raise ProxmoxAPIError(
+                "Software-Installation fehlgeschlagen: "
+                + (install_result.stderr.strip()[-300:] or "siehe Logs")
+            )
+        manager.log(job, "info", "Software-Installation abgeschlossen.")
+
+        # 5. Check for available updates
+        manager.set_status(job, JobStatus.checking_updates, progress=85)
+        job.updates = await _check_updates_for_job(job)
+        job.updates_checked = True
+        manager.log(job, "info", f"{len(job.updates)} Update(s) verfügbar.")
+
+        manager.set_status(job, JobStatus.done, progress=100)
+        manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")
+    except (ProxmoxAPIError, SSHError) as exc:
+        _fail(job, str(exc))
+    except Exception as exc:  # pragma: no cover - safety net
+        logger.exception("Unerwarteter Fehler bei der VM-Bereitstellung")
+        _fail(job, f"Unerwarteter Fehler: {exc}")
+
+
 async def run_install_updates(job_id: str) -> None:
-    """Install available updates inside the container of an existing job."""
+    """Install available updates inside the guest (LXC or VM) of an existing job."""
     job = manager.get(job_id)
     if job is None or job.vmid is None:
         return
-    ssh = get_ssh()
     try:
         manager.set_status(job, JobStatus.installing_updates, progress=50)
         manager.log(job, "info", "Installiere verfügbare Updates …")
-        script = (
-            "export DEBIAN_FRONTEND=noninteractive\n"
-            "apt-get update\n"
-            "apt-get -y upgrade\n"
-        )
-        result = await ssh.run_in_container(job.vmid, script, timeout=1800)
+        result = await _run_guest_script(job, _UPGRADE_SCRIPT, timeout=1800)
         manager.log_output(job, result.stdout)
         if not result.ok:
-            raise SSHError(
+            raise ProxmoxAPIError(
                 "Update-Installation fehlgeschlagen: "
                 + (result.stderr.strip()[-300:] or "siehe Logs")
             )
         # Re-check remaining updates.
-        updates, _ = await _check_updates(job.vmid)
-        job.updates = updates
+        job.updates = await _check_updates_for_job(job)
         job.updates_checked = True
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Updates installiert.")

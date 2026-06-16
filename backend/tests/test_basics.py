@@ -186,3 +186,56 @@ def test_wait_for_task_raises_on_real_error():
     client.task_status = fake_status
     with pytest.raises(ProxmoxAPIError):
         asyncio.run(client.wait_for_task("node", "upid", timeout=5))
+
+
+# --- VM support -------------------------------------------------------------
+def test_vm_template_must_be_numeric():
+    with pytest.raises(ValidationError):
+        ContainerCreateRequest(
+            **_valid_payload(type="vm", template="local:vztmpl/x.tar.zst")
+        )
+
+
+def test_vm_request_valid():
+    req = ContainerCreateRequest(**_valid_payload(type="vm", template="9000"))
+    assert req.type == "vm"
+    assert req.vm_template_id == 9000
+
+
+def test_build_vm_config_cloudinit():
+    from app.tasks import build_vm_config
+
+    req = ContainerCreateRequest(
+        **_valid_payload(
+            type="vm",
+            template="9000",
+            ip_config="static",
+            ip_address="192.168.1.50/24",
+            gateway="192.168.1.1",
+            ssh_key="ssh-ed25519 AAAAExample",
+        )
+    )
+    cfg = build_vm_config(req)
+    assert cfg["ciuser"] == "deploy"
+    assert cfg["ipconfig0"] == "ip=192.168.1.50/24,gw=192.168.1.1"
+    assert cfg["agent"] == 1
+    assert cfg["net0"].startswith("virtio,bridge=")
+    assert "%20" in cfg["sshkeys"]  # URL-encoded
+
+
+def test_detect_boot_disk():
+    from app.tasks import _detect_boot_disk
+
+    assert (
+        _detect_boot_disk(
+            {"boot": "order=scsi0;net0", "scsi0": "local-zfs:vm-9000-disk-0,size=2G"}
+        )
+        == "scsi0"
+    )
+    assert (
+        _detect_boot_disk(
+            {"virtio0": "local:vm-1-disk-0,size=2G", "ide2": "local:cloudinit,media=cdrom"}
+        )
+        == "virtio0"
+    )
+    assert _detect_boot_disk({"ide2": "x,media=cdrom"}) is None

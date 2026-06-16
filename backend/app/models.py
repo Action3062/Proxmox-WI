@@ -63,11 +63,13 @@ class ContainerCreateRequest(BaseModel):
     added later without breaking the API contract.
     """
 
-    type: Literal["lxc"] = "lxc"  # "vm" reserved for a future iteration
+    type: Literal["lxc", "vm"] = "lxc"
     node: Optional[str] = None  # falls back to the configured default node
 
     # Template / OS
-    template: str = Field(min_length=3, max_length=256)  # Proxmox volid
+    # For LXC: the ostemplate volid ("storage:vztmpl/file").
+    # For VM:  the VMID of a cloud-init enabled template to clone.
+    template: str = Field(min_length=1, max_length=256)
     os: Optional[Literal["debian", "ubuntu"]] = None
 
     # Identity
@@ -102,19 +104,6 @@ class ContainerCreateRequest(BaseModel):
             raise ValueError("Ungültiger Hostname.")
         return value
 
-    @field_validator("template")
-    @classmethod
-    def _validate_template(cls, value: str) -> str:
-        # Must be a Proxmox volume id ("storage:vztmpl/file"), never a raw path.
-        # Proxmox rejects arbitrary filesystem paths for non-root API tokens with
-        # "Only root can pass arbitrary filesystem paths", so we catch it early.
-        if value.startswith("/") or ":" not in value:
-            raise ValueError(
-                "Ungültiges Template. Bitte ein Template aus der Liste wählen "
-                "(Format 'storage:vztmpl/datei'), keinen Dateipfad."
-            )
-        return value
-
     @field_validator("username")
     @classmethod
     def _validate_username(cls, value: str) -> str:
@@ -134,6 +123,20 @@ class ContainerCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_network_and_credentials(self) -> "ContainerCreateRequest":
+        # Template format depends on the type. For non-root API tokens Proxmox
+        # rejects arbitrary filesystem paths, so we validate the format early.
+        if self.type == "lxc":
+            if self.template.startswith("/") or ":" not in self.template:
+                raise ValueError(
+                    "Ungültiges LXC-Template. Bitte eines aus der Liste wählen "
+                    "(Format 'storage:vztmpl/datei')."
+                )
+        else:  # vm: must reference a template VMID to clone
+            if not self.template.isdigit():
+                raise ValueError(
+                    "Ungültiges VM-Template. Bitte eine Vorlage aus der Liste wählen."
+                )
+
         # Static IP requires a valid CIDR address (and optionally a gateway).
         if self.ip_config == IPConfigMode.static:
             if not self.ip_address:
@@ -154,6 +157,11 @@ class ContainerCreateRequest(BaseModel):
         if not self.password and not self.ssh_key:
             raise ValueError("Entweder Passwort oder SSH-Key muss angegeben werden.")
         return self
+
+    @property
+    def vm_template_id(self) -> int:
+        """The template VMID to clone (VM only)."""
+        return int(self.template)
 
     def safe_dict(self) -> dict:
         """Return the request without secrets, suitable for logging/status."""

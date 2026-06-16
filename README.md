@@ -77,7 +77,7 @@ Proxmox anzulegen und einzurichten, vereinfachen und automatisieren:
 ## Funktionen
 
 - 🔐 Login-Schutz (JWT) für das Webinterface
-- 🧰 Auswahl LXC-Container (VM vorbereitet) · Debian/Ubuntu · Version/Template
+- 🧰 Auswahl LXC-Container **oder VM** (cloud-init) · Debian/Ubuntu · Version/Template
 - ⚙️ Konfiguration: Hostname, CPU, RAM, Speicher, Bridge, DHCP/statische IP,
   Benutzername, Passwort/SSH-Key, Autostart, Beschreibung
 - 📦 Software-Auswahl mit vorausgewählten Standardpaketen + Extras (Docker,
@@ -108,6 +108,39 @@ Proxmox anzulegen und einzurichten, vereinfachen und automatisieren:
   eigener Benutzer/Key; im einfachsten Fall `root` mit Key-Authentifizierung.
 - Eine Netzwerk-Bridge (z. B. `vmbr0`) mit Internetzugang für die Container
   (damit `apt`/Docker-Installation funktioniert).
+
+### Für VMs: Cloud-Init-Template vorbereiten
+
+VMs werden aus einem **cloud-init-fähigen Template geklont**. Software/Updates
+laufen über den **QEMU-Guest-Agent**, daher muss `qemu-guest-agent` im Image
+enthalten sein. Einmalige Vorbereitung auf dem Proxmox-Host (Beispiel Debian 12,
+Storage `local-zfs`, Template-VMID `9000`):
+
+```bash
+# 1. Cloud-Image herunterladen
+wget https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+
+# 2. qemu-guest-agent ins Image einbauen (wichtig für Software/Updates!)
+apt-get install -y libguestfs-tools
+virt-customize -a debian-12-genericcloud-amd64.qcow2 --install qemu-guest-agent
+
+# 3. VM anlegen, Disk importieren, cloud-init + Agent aktivieren
+qm create 9000 --name debian-12-cloud --memory 1024 --cores 2 --net0 virtio,bridge=vmbr0
+qm importdisk 9000 debian-12-genericcloud-amd64.qcow2 local-zfs
+qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-zfs:vm-9000-disk-0
+qm set 9000 --ide2 local-zfs:cloudinit
+qm set 9000 --boot order=scsi0
+qm set 9000 --serial0 socket --vga serial0
+qm set 9000 --agent enabled=1
+
+# 4. In ein Template umwandeln
+qm template 9000
+```
+
+Für Ubuntu analog mit `https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img`.
+Das Webinterface zeigt anschließend unter „Virtuelle Maschine“ alle Templates
+(VMs mit `template=1`) zur Auswahl an, klont das gewählte, setzt Benutzer/SSH/IP
+per cloud-init und installiert Software über den Guest-Agent.
 
 ## Proxmox API-Token erstellen
 

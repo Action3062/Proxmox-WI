@@ -31,6 +31,7 @@ export default function CreateContainerForm({ onCreated }) {
   const [storages, setStorages] = useState([]);
   const [bridges, setBridges] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [vmTemplates, setVmTemplates] = useState([]);
   const [metaError, setMetaError] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -58,17 +59,20 @@ export default function CreateContainerForm({ onCreated }) {
   useEffect(() => {
     (async () => {
       try {
-        const [nodeList, storageList, bridgeList, templateList, defaults] = await Promise.all([
-          api.nodes().catch(() => []),
-          api.storages().catch(() => []),
-          api.bridges().catch(() => []),
-          api.templates().catch(() => []),
-          api.defaults().catch(() => null),
-        ]);
+        const [nodeList, storageList, bridgeList, templateList, vmTemplateList, defaults] =
+          await Promise.all([
+            api.nodes().catch(() => []),
+            api.storages().catch(() => []),
+            api.bridges().catch(() => []),
+            api.templates().catch(() => []),
+            api.vmTemplates().catch(() => []),
+            api.defaults().catch(() => null),
+          ]);
         setNodes(nodeList);
         setStorages(storageList);
         setBridges(bridgeList);
         setTemplates(templateList);
+        setVmTemplates(vmTemplateList);
         // Pre-fill storage/bridge from the server-side configured defaults.
         if (defaults) {
           setForm((f) => ({
@@ -88,27 +92,39 @@ export default function CreateContainerForm({ onCreated }) {
     })();
   }, []);
 
-  const filteredTemplates = useMemo(
-    () => templates.filter((t) => t.os === form.os),
-    [templates, form.os]
-  );
+  // Template options depend on the type: LXC uses ostemplate volids, VM uses
+  // the VMID of a cloud-init template to clone. Both filtered by the chosen OS.
+  const templateOptions = useMemo(() => {
+    if (form.type === "vm") {
+      return vmTemplates
+        .filter((t) => t.os === form.os || t.os === "other")
+        .map((t) => ({ value: String(t.vmid), label: `${t.name} (VMID ${t.vmid})` }));
+    }
+    return templates
+      .filter((t) => t.os === form.os)
+      .map((t) => ({ value: t.volid, label: `${t.label} (${t.filename})` }));
+  }, [form.type, form.os, templates, vmTemplates]);
 
-  // Keep the selected template valid for the chosen OS.
+  // Keep the selected template valid for the current type/OS.
   useEffect(() => {
-    if (filteredTemplates.length) {
-      const stillValid = filteredTemplates.some((t) => t.volid === form.template);
-      if (!stillValid) set("template", filteredTemplates[0].volid);
+    if (templateOptions.length) {
+      const stillValid = templateOptions.some((o) => o.value === form.template);
+      if (!stillValid) set("template", templateOptions[0].value);
     } else {
       set("template", "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredTemplates]);
+  }, [templateOptions]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     if (!form.template) {
-      setError("Bitte ein Template auswählen (oder Template-Volid eingeben).");
+      setError(
+        form.type === "vm"
+          ? "Bitte ein VM-Template auswählen (oder VMID eingeben)."
+          : "Bitte ein Template auswählen (oder Template-Volid eingeben)."
+      );
       return;
     }
     setBusy(true);
@@ -135,7 +151,7 @@ export default function CreateContainerForm({ onCreated }) {
 
   return (
     <form className="card form" onSubmit={onSubmit}>
-      <h2>Neuen LXC-Container erstellen</h2>
+      <h2>{form.type === "vm" ? "Neue VM erstellen" : "Neuen LXC-Container erstellen"}</h2>
       {metaError && <div className="alert alert-warn">{metaError}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -146,9 +162,7 @@ export default function CreateContainerForm({ onCreated }) {
             Typ
             <select value={form.type} onChange={(e) => set("type", e.target.value)}>
               <option value="lxc">LXC-Container</option>
-              <option value="vm" disabled>
-                Virtuelle Maschine (bald verfügbar)
-              </option>
+              <option value="vm">Virtuelle Maschine</option>
             </select>
           </label>
           <label>
@@ -160,24 +174,34 @@ export default function CreateContainerForm({ onCreated }) {
           </label>
           <label>
             Version / Template
-            {filteredTemplates.length ? (
+            {templateOptions.length ? (
               <select value={form.template} onChange={(e) => set("template", e.target.value)}>
-                {filteredTemplates.map((t) => (
-                  <option key={t.volid} value={t.volid}>
-                    {t.label} ({t.filename})
+                {templateOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </select>
             ) : (
               <input
                 type="text"
-                placeholder="z. B. local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+                placeholder={
+                  form.type === "vm"
+                    ? "VMID eines Cloud-Init-Templates, z. B. 9000"
+                    : "z. B. local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+                }
                 value={form.template}
                 onChange={(e) => set("template", e.target.value)}
               />
             )}
           </label>
         </div>
+        {form.type === "vm" && (
+          <p className="muted small">
+            VMs werden aus einem Cloud-Init-Template geklont. Im Template muss
+            <code> qemu-guest-agent</code> installiert sein.
+          </p>
+        )}
       </fieldset>
 
       <fieldset>
@@ -374,7 +398,11 @@ export default function CreateContainerForm({ onCreated }) {
 
       <div className="actions">
         <button type="submit" className="btn btn-primary" disabled={busy}>
-          {busy ? "Wird erstellt …" : "Container erstellen"}
+          {busy
+            ? "Wird erstellt …"
+            : form.type === "vm"
+            ? "VM erstellen"
+            : "Container erstellen"}
         </button>
       </div>
     </form>

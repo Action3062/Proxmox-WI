@@ -87,6 +87,7 @@ export const api = {
   storages: (params) => request(`/proxmox/storages${qs(params)}`),
   bridges: (params) => request(`/proxmox/bridges${qs(params)}`),
   templates: (params) => request(`/proxmox/templates${qs(params)}`),
+  vmTemplates: (params) => request(`/proxmox/vm-templates${qs(params)}`),
   nextVmid: () => request("/proxmox/next-vmid"),
   createContainer: (payload) => request("/containers", { method: "POST", body: payload }),
   jobs: () => request("/jobs"),
