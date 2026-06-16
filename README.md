@@ -122,7 +122,9 @@ wget https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericclou
 
 # 2. qemu-guest-agent ins Image einbauen (wichtig für Software/Updates!)
 apt-get install -y libguestfs-tools
-virt-customize -a debian-12-genericcloud-amd64.qcow2 --install qemu-guest-agent
+virt-customize -a debian-12-genericcloud-amd64.qcow2 \
+  --install qemu-guest-agent \
+  --run-command 'systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true'
 
 # 3. VM anlegen, Disk importieren, cloud-init + Agent aktivieren
 qm create 9000 --name debian-12-cloud --memory 1024 --cores 2 --net0 virtio,bridge=vmbr0

@@ -90,10 +90,11 @@ def test_install_script_resolves_dependencies():
 
 
 def test_install_script_waits_for_apt_lock():
-    # The script must tolerate the cloud-init/apt-daily dpkg lock on VM first boot.
+    # Must tolerate the cloud-init/apt-daily dpkg lock and stop competing apt jobs.
     script = build_install_script(["curl"])
     assert "DPkg::Lock::Timeout" in script
     assert "pgrep" in script
+    assert "apt-daily" in script
 
 
 def test_parse_upgradable():

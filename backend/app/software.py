@@ -24,13 +24,14 @@ export DEBIAN_FRONTEND=noninteractive
 # (happens on Debian 12 / Ubuntu 22.04 when services need restarting).
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
-# Let apt wait for the lock instead of failing. We deliberately do NOT run
-# "cloud-init status --wait": on some templates it never reports "done" and burns
-# its full timeout. We only need the dpkg lock to be free, so we wait until no
-# apt/dpkg process is running anymore (returns as soon as cloud-init's package
-# phase is done) and let apt itself wait for the lock as a fallback.
-APT_OPTS="-o DPkg::Lock::Timeout=300"
-for _ in $(seq 1 120); do
+APT_OPTS="-o DPkg::Lock::Timeout=600"
+# On first boot Debian/Ubuntu run apt-daily + unattended-upgrades, which install
+# all pending updates and hold the dpkg lock for many minutes. Stop them so
+# provisioning is fast, then wait for any in-progress run to release the lock and
+# repair the package DB in case a run was interrupted.
+systemctl stop apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+systemctl stop apt-daily.service apt-daily-upgrade.service unattended-upgrades.service >/dev/null 2>&1 || true
+for _ in $(seq 1 60); do
   if pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
      || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
     sleep 3
@@ -38,6 +39,7 @@ for _ in $(seq 1 120); do
     break
   fi
 done
+dpkg --configure -a >/dev/null 2>&1 || true
 """
 
 

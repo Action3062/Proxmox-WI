@@ -256,7 +256,7 @@ async def _run_guest_script(job: "Job", script: str, timeout: int = 1800):
 
 async def _check_updates_for_job(job: "Job") -> List[UpdateInfo]:
     """Run apt update + list upgradable inside the guest and parse the result."""
-    result = await _run_guest_script(job, _UPDATE_CHECK_SCRIPT, timeout=300)
+    result = await _run_guest_script(job, _UPDATE_CHECK_SCRIPT, timeout=600)
     return parse_upgradable(result.stdout)
 
 
