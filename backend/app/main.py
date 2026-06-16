@@ -16,7 +16,7 @@ from . import __version__
 from .config import get_settings
 from .logging_config import setup_logging
 from .proxmox_client import ProxmoxAPIError
-from .routers import auth, containers, logs, proxmox
+from .routers import auth, containers, guests, logs, proxmox
 from .ssh_client import SSHError
 
 setup_logging()
@@ -52,6 +52,7 @@ async def ssh_error_handler(_: Request, exc: SSHError) -> JSONResponse:
 app.include_router(auth.router, prefix="/api")
 app.include_router(proxmox.router, prefix="/api")
 app.include_router(containers.router, prefix="/api")
+app.include_router(guests.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 
 

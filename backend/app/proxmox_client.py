@@ -219,6 +219,22 @@ class ProxmoxClient:
         upid = await self._request("POST", f"/nodes/{node}/qemu/{vmid}/status/start")
         return str(upid)
 
+    # --- Generic guest management (kind = "lxc" | "qemu") -----------------
+    async def guest_action(self, node: str, kind: str, vmid: int, action: str) -> str:
+        """Run a power action (start/stop/shutdown/reboot) on a guest."""
+        upid = await self._request(
+            "POST", f"/nodes/{node}/{kind}/{vmid}/status/{action}"
+        )
+        return str(upid)
+
+    async def delete_guest(self, node: str, kind: str, vmid: int) -> str:
+        """Destroy a (stopped) guest, removing its unused disks."""
+        upid = await self._request(
+            "DELETE", f"/nodes/{node}/{kind}/{vmid}",
+            params={"destroy-unreferenced-disks": 1, "purge": 1},
+        )
+        return str(upid)
+
     # --- QEMU guest agent (used to run software install / update checks) ---
     async def agent_ping(self, node: str, vmid: int) -> Any:
         return await self._request("POST", f"/nodes/{node}/qemu/{vmid}/agent/ping")

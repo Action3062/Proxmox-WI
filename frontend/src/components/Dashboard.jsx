@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../lib/auth.jsx";
 import { api } from "../lib/api.js";
 import CreateContainerForm from "./CreateContainerForm.jsx";
+import GuestList from "./GuestList.jsx";
 import JobList from "./JobList.jsx";
 import JobStatus from "./JobStatus.jsx";
 import LogViewer from "./LogViewer.jsx";
 
 const TABS = [
   { id: "create", label: "Erstellen" },
+  { id: "guests", label: "Gäste" },
   { id: "jobs", label: "Aufträge" },
   { id: "logs", label: "Server-Logs" },
 ];
@@ -62,6 +64,8 @@ export default function Dashboard() {
 
       <main className="content">
         {tab === "create" && <CreateContainerForm onCreated={onCreated} />}
+
+        {tab === "guests" && <GuestList />}
 
         {tab === "jobs" && (
           <div className="jobs-layout">

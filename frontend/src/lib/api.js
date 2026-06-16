@@ -90,6 +90,11 @@ export const api = {
   vmTemplates: (params) => request(`/proxmox/vm-templates${qs(params)}`),
   nextVmid: () => request("/proxmox/next-vmid"),
   createContainer: (payload) => request("/containers", { method: "POST", body: payload }),
+  guests: () => request("/guests"),
+  guestAction: (kind, vmid, action, node) =>
+    request(`/guests/${kind}/${vmid}/${action}${qs({ node })}`, { method: "POST" }),
+  guestDelete: (kind, vmid, node) =>
+    request(`/guests/${kind}/${vmid}${qs({ node })}`, { method: "DELETE" }),
   jobs: () => request("/jobs"),
   job: (id) => request(`/jobs/${id}`),
   installUpdates: (id) => request(`/jobs/${id}/install-updates`, { method: "POST" }),
