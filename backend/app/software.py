@@ -20,14 +20,20 @@ from .models import SoftwarePackage
 APT_PRELUDE = r"""#!/usr/bin/env bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Stop needrestart from opening an interactive prompt that would hang apt
+# (happens on Debian 12 / Ubuntu 22.04 when services need restarting).
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
 APT_OPTS="-o DPkg::Lock::Timeout=300"
+# Wait (bounded!) for cloud-init to finish on VM first boot.
 if command -v cloud-init >/dev/null 2>&1; then
-  cloud-init status --wait >/dev/null 2>&1 || true
+  timeout 300 cloud-init status --wait >/dev/null 2>&1 || true
 fi
-for _ in $(seq 1 150); do
+# Wait (bounded, ~5 min) for any running apt/dpkg to release the lock.
+for _ in $(seq 1 60); do
   if pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
      || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
-    sleep 4
+    sleep 5
   else
     break
   fi

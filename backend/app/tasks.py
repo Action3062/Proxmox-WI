@@ -488,7 +488,11 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
 
         # 4. Install selected software via the guest agent
         manager.set_status(job, JobStatus.installing, progress=60)
-        manager.log(job, "info", "Installiere ausgewählte Software …")
+        manager.log(
+            job, "info",
+            "Warte auf cloud-init und installiere Software … "
+            "(über den Guest-Agent ohne Zwischenausgabe, kann einige Minuten dauern)",
+        )
         install_result = await proxmox.agent_exec(
             node, vmid, build_install_script(request.software), timeout=1800
         )
