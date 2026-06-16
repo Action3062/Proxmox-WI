@@ -263,6 +263,21 @@ def test_agent_exec_isolates_daemons_and_returns_output():
     assert "mktemp" in cmd[2] and '>"$out" 2>&1' in cmd[2]
 
 
+def test_update_defaults_on():
+    req = ContainerCreateRequest(**_valid_payload())
+    assert req.install_updates is True
+    assert req.auto_security_updates is True
+
+
+def test_unattended_upgrades_script():
+    from app.software import build_unattended_upgrades_script
+
+    s = build_unattended_upgrades_script()
+    assert "unattended-upgrades" in s
+    assert "20auto-upgrades" in s
+    assert "apt-daily.timer" in s
+
+
 def test_ssh_pwauth_script():
     from app.tasks import build_ssh_pwauth_script
 

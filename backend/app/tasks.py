@@ -26,7 +26,7 @@ from .models import (
     UpdateInfo,
 )
 from .proxmox_client import ProxmoxAPIError, get_proxmox
-from .software import APT_PRELUDE, build_install_script
+from .software import APT_PRELUDE, build_install_script, build_unattended_upgrades_script
 from .ssh_client import SSHError, get_ssh
 
 logger = logging.getLogger(__name__)
@@ -283,6 +283,43 @@ async def _check_updates_for_job(job: "Job") -> List[UpdateInfo]:
     return parse_upgradable(result.stdout)
 
 
+async def _finalize_updates(job: "Job", request: ContainerCreateRequest) -> None:
+    """Install pending updates (optional), report what remains, then enable
+    automatic security updates (optional).
+
+    Ordering matters: enabling unattended-upgrades is the *last* apt step so the
+    apt-daily timers (stopped by the prelude for speed) end up enabled again.
+    Shared by the LXC and VM workflows.
+    """
+    if request.install_updates:
+        manager.set_status(job, JobStatus.installing_updates, progress=78)
+        manager.log(job, "info", "Installiere verfügbare Updates …")
+        result = await _run_guest_script(job, _UPGRADE_SCRIPT, timeout=1800)
+        manager.log_output(job, result.stdout)
+        if not result.ok:
+            raise ProxmoxAPIError(
+                "Update-Installation fehlgeschlagen: "
+                + (result.stderr.strip()[-300:] or "siehe Logs")
+            )
+        manager.log(job, "info", "Updates installiert.")
+
+    manager.set_status(job, JobStatus.checking_updates, progress=88)
+    job.updates = await _check_updates_for_job(job)
+    job.updates_checked = True
+    manager.log(job, "info", f"{len(job.updates)} Update(s) verbleibend.")
+
+    if request.auto_security_updates:
+        manager.log(job, "info", "Aktiviere automatische Sicherheitsupdates …")
+        result = await _run_guest_script(job, build_unattended_upgrades_script(), timeout=600)
+        if result.ok:
+            manager.log(job, "info", "Automatische Sicherheitsupdates aktiv.")
+        else:
+            manager.log(
+                job, "warning",
+                "Automatische Sicherheitsupdates konnten nicht vollständig eingerichtet werden.",
+            )
+
+
 async def _resolve_deployment_node(proxmox, requested: Optional[str]) -> str:
     """Resolve the target node and fail with a clear message if it is unknown.
 
@@ -391,11 +428,8 @@ async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> No
             )
         manager.log(job, "info", "Software-Installation abgeschlossen.")
 
-        # 5. Check for available updates (do not install automatically)
-        manager.set_status(job, JobStatus.checking_updates, progress=85)
-        job.updates = await _check_updates_for_job(job)
-        job.updates_checked = True
-        manager.log(job, "info", f"{len(job.updates)} Update(s) verfügbar.")
+        # 5. Install/check updates + enable automatic security updates
+        await _finalize_updates(job, request)
 
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")
@@ -541,11 +575,8 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
             )
         manager.log(job, "info", "Software-Installation abgeschlossen.")
 
-        # 5. Check for available updates
-        manager.set_status(job, JobStatus.checking_updates, progress=85)
-        job.updates = await _check_updates_for_job(job)
-        job.updates_checked = True
-        manager.log(job, "info", f"{len(job.updates)} Update(s) verfügbar.")
+        # 5. Install/check updates + enable automatic security updates
+        await _finalize_updates(job, request)
 
         manager.set_status(job, JobStatus.done, progress=100)
         manager.log(job, "info", "Bereitstellung erfolgreich abgeschlossen.")

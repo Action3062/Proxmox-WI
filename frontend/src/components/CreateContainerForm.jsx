@@ -22,6 +22,8 @@ const INITIAL = {
   ssh_key: "",
   autostart: false,
   language: "de",
+  install_updates: true,
+  auto_security_updates: true,
   software: [],
 };
 
@@ -394,6 +396,22 @@ export default function CreateContainerForm({ onCreated }) {
             onChange={(e) => set("autostart", e.target.checked)}
           />
           Autostart aktivieren
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.install_updates}
+            onChange={(e) => set("install_updates", e.target.checked)}
+          />
+          Updates bei Erstellung installieren
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.auto_security_updates}
+            onChange={(e) => set("auto_security_updates", e.target.checked)}
+          />
+          Automatische Sicherheitsupdates aktivieren
         </label>
       </fieldset>
 

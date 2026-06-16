@@ -96,6 +96,8 @@ class ContainerCreateRequest(BaseModel):
     # Options
     autostart: bool = False
     language: Literal["de", "en"] = "de"  # locale + console keyboard layout
+    install_updates: bool = True  # install pending updates during provisioning
+    auto_security_updates: bool = True  # enable unattended-upgrades for security
     software: List[str] = Field(default_factory=list)
 
     @field_validator("hostname")

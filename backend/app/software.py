@@ -200,6 +200,26 @@ def _resolve(selected_ids: List[str]) -> List[CatalogEntry]:
     return ordered
 
 
+def build_unattended_upgrades_script() -> str:
+    """Install and enable unattended-upgrades for automatic security updates.
+
+    Debian/Ubuntu's default unattended-upgrades config applies the security
+    origin, so this gives automatic security updates. The apt-daily timers (which
+    the prelude stops for speed) are re-enabled so they run going forward. This
+    must be the last apt step in provisioning so the timers stay enabled.
+    """
+    return APT_PRELUDE + (
+        "apt-get $APT_OPTS install -y unattended-upgrades apt-listchanges\n"
+        "cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'\n"
+        'APT::Periodic::Update-Package-Lists "1";\n'
+        'APT::Periodic::Unattended-Upgrade "1";\n'
+        "EOF\n"
+        "systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true\n"
+        "systemctl enable unattended-upgrades >/dev/null 2>&1 || true\n"
+        "echo '==> Automatische Sicherheitsupdates aktiviert'\n"
+    )
+
+
 def build_install_script(selected_ids: List[str], language: str = "de") -> str:
     """Build a single idempotent bash script that installs the selected software.
 
