@@ -65,6 +65,8 @@ def _locale_commands(language: str) -> List[str]:
         f"command -v localectl >/dev/null 2>&1 && localectl set-keymap {keymap} 2>/dev/null || true",
         f"command -v timedatectl >/dev/null 2>&1 && timedatectl set-timezone {tz} 2>/dev/null || true",
         f"ln -sf /usr/share/zoneinfo/{tz} /etc/localtime 2>/dev/null || true",
+        # Apply the console keymap to the running system (otherwise only on reboot).
+        "systemctl restart systemd-vconsole-setup 2>/dev/null || setupcon 2>/dev/null || true",
     ]
 
 

@@ -397,6 +397,9 @@ def build_vm_config(request: ContainerCreateRequest) -> dict:
         # templates are often set to "serial0", which leaves the noVNC console
         # blank. Cloud images also output to tty0, so this shows the login prompt.
         "vga": "std",
+        # QEMU/VNC keyboard layout for the (no)VNC console. This is what actually
+        # determines the layout when typing in the Proxmox console.
+        "keyboard": "de" if request.language == "de" else "en-us",
         "net0": net,
         "ciuser": request.username,
         "ipconfig0": ipconfig,
