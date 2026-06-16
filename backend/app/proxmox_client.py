@@ -243,7 +243,16 @@ class ProxmoxClient:
         guest, so no quoting/encoding issues arise on the transport.
         """
         encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
-        inner = f"echo {encoded} | base64 -d | bash"
+        # Redirect the script's stdin/stdout/stderr to a temp file and only print
+        # the captured output at the very end. Without this, long-running daemons
+        # started during the script (sshd, dockerd, ...) inherit the guest agent's
+        # output pipes and keep them open, so guest-exec-status never reports the
+        # command as finished and the dashboard hangs on "installing".
+        inner = (
+            "out=$(mktemp); "
+            f'{{ echo {encoded} | base64 -d | bash; }} >"$out" 2>&1 </dev/null; '
+            'rc=$?; cat "$out"; rm -f "$out"; exit $rc'
+        )
         started = await self._request(
             "POST",
             f"/nodes/{node}/qemu/{vmid}/agent/exec",

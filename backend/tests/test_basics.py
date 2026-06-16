@@ -231,6 +231,29 @@ def test_build_vm_config_cloudinit():
     assert "%20" in cfg["sshkeys"]  # URL-encoded
 
 
+def test_agent_exec_isolates_daemons_and_returns_output():
+    import asyncio
+
+    client = _client()
+    calls = {}
+
+    async def fake_request(method, path, *, data=None, params=None):
+        if path.endswith("/agent/exec"):
+            calls["command"] = data["command"]
+            return {"pid": 42}
+        if path.endswith("/agent/exec-status"):
+            return {"exited": 1, "exitcode": 0, "out-data": "done", "err-data": ""}
+        return None
+
+    client._request = fake_request
+    res = asyncio.run(client.agent_exec("node", 1, "echo hi"))
+    assert res.ok and res.stdout == "done"
+    # The wrapper must isolate daemons from the agent's output pipes.
+    cmd = calls["command"]
+    assert cmd[0] == "/bin/bash" and cmd[1] == "-c"
+    assert "mktemp" in cmd[2] and '>"$out" 2>&1' in cmd[2]
+
+
 def test_detect_boot_disk():
     from app.tasks import _detect_boot_disk
 
