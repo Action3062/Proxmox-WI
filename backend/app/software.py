@@ -24,16 +24,16 @@ export DEBIAN_FRONTEND=noninteractive
 # (happens on Debian 12 / Ubuntu 22.04 when services need restarting).
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
+# Let apt wait for the lock instead of failing. We deliberately do NOT run
+# "cloud-init status --wait": on some templates it never reports "done" and burns
+# its full timeout. We only need the dpkg lock to be free, so we wait until no
+# apt/dpkg process is running anymore (returns as soon as cloud-init's package
+# phase is done) and let apt itself wait for the lock as a fallback.
 APT_OPTS="-o DPkg::Lock::Timeout=300"
-# Wait (bounded!) for cloud-init to finish on VM first boot.
-if command -v cloud-init >/dev/null 2>&1; then
-  timeout 300 cloud-init status --wait >/dev/null 2>&1 || true
-fi
-# Wait (bounded, ~5 min) for any running apt/dpkg to release the lock.
-for _ in $(seq 1 60); do
+for _ in $(seq 1 120); do
   if pgrep -x apt >/dev/null 2>&1 || pgrep -x apt-get >/dev/null 2>&1 \
      || pgrep -x dpkg >/dev/null 2>&1 || pgrep -x unattended-upgr >/dev/null 2>&1; then
-    sleep 5
+    sleep 3
   else
     break
   fi
