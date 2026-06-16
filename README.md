@@ -124,7 +124,8 @@ wget https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericclou
 apt-get install -y libguestfs-tools
 virt-customize -a debian-12-genericcloud-amd64.qcow2 \
   --install qemu-guest-agent \
-  --run-command 'systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true'
+  --run-command 'systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true' \
+  --run-command 'truncate -s 0 /etc/machine-id'   # eindeutige IP je Klon (DHCP)
 
 # 3. VM anlegen, Disk importieren, cloud-init + Agent aktivieren
 qm create 9000 --name debian-12-cloud --memory 1024 --cores 2 --net0 virtio,bridge=vmbr0
