@@ -212,6 +212,29 @@ def build_user_script(request: ContainerCreateRequest) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_ssh_pwauth_script() -> str:
+    """Enable SSH password authentication inside the guest.
+
+    Cloud images ship with ``PasswordAuthentication no``. When the user chose a
+    password (not just an SSH key) we enable it via a drop-in that sorts before
+    the cloud-init drop-in so it wins, and also fix any existing directives.
+    """
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        "mkdir -p /etc/ssh/sshd_config.d\n"
+        "printf 'PasswordAuthentication yes\\nKbdInteractiveAuthentication yes\\n'"
+        " > /etc/ssh/sshd_config.d/00-pwauth.conf\n"
+        "sed -ri 's/^[#[:space:]]*PasswordAuthentication.*/PasswordAuthentication yes/'"
+        " /etc/ssh/sshd_config 2>/dev/null || true\n"
+        "for f in /etc/ssh/sshd_config.d/*cloud-init*.conf; do\n"
+        "  [ -e \"$f\" ] && sed -ri"
+        " 's/^[#[:space:]]*PasswordAuthentication.*/PasswordAuthentication yes/' \"$f\" || true\n"
+        "done\n"
+        "systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true\n"
+    )
+
+
 def parse_upgradable(output: str) -> List[UpdateInfo]:
     """Parse the output of ``apt list --upgradable`` into structured entries."""
     updates: List[UpdateInfo] = []
@@ -348,6 +371,11 @@ async def _run_lxc_deployment(job: "Job", request: ContainerCreateRequest) -> No
                 "Benutzer konnte nicht angelegt werden: "
                 + (user_result.stderr.strip()[:300] or "unbekannter Fehler")
             )
+
+        # Enable SSH password login when a password was provided.
+        if request.password:
+            manager.log(job, "info", "Aktiviere SSH-Passwort-Anmeldung.")
+            await ssh.run_in_container(vmid, build_ssh_pwauth_script(), timeout=120)
 
         # 4. Install selected software
         manager.set_status(job, JobStatus.installing, progress=60)
@@ -488,6 +516,12 @@ async def _run_vm_deployment(job: "Job", request: ContainerCreateRequest) -> Non
                 "installiert und cloud-init durchgelaufen?"
             )
         manager.log(job, "info", "Guest-Agent bereit.")
+
+        # Enable SSH password login when a password was provided (cloud images
+        # disable it by default).
+        if request.password:
+            manager.log(job, "info", "Aktiviere SSH-Passwort-Anmeldung.")
+            await proxmox.agent_exec(node, vmid, build_ssh_pwauth_script(), timeout=120)
 
         # 4. Install selected software via the guest agent
         manager.set_status(job, JobStatus.installing, progress=60)

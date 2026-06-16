@@ -263,6 +263,14 @@ def test_agent_exec_isolates_daemons_and_returns_output():
     assert "mktemp" in cmd[2] and '>"$out" 2>&1' in cmd[2]
 
 
+def test_ssh_pwauth_script():
+    from app.tasks import build_ssh_pwauth_script
+
+    s = build_ssh_pwauth_script()
+    assert "PasswordAuthentication yes" in s
+    assert "00-pwauth.conf" in s
+
+
 def test_detect_boot_disk():
     from app.tasks import _detect_boot_disk
 
